@@ -3725,3 +3725,23 @@ void draw_toolbar(recomp_context* ctx) {
     });
     window("Weapons", &show_weapons, display.x * 0.5f, [&]() { draw_weapons(); });
 }
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+// On a page the debug menu isn't drawn (its ImGui backends are Vulkan and D3D12), so the warp it offers is reachable
+// from the page's JavaScript instead, for the script that records the page's shader list by visiting every level
+// (tools/shader_survey.js): Module._jfg_web_warp(level, character, entrance) warps at the next tick, as "Go to level"
+// does, and Module._jfg_web_level_names() prints each level's number and name to the console.
+extern "C" EMSCRIPTEN_KEEPALIVE void jfg_web_warp(int level, int character, int entrance) {
+    g.warp_level = level;
+    g.warp_character = character;
+    g.warp_entrance = entrance;
+    g.pending_warp = true;
+}
+extern "C" EMSCRIPTEN_KEEPALIVE void jfg_web_level_names() {
+    load_level_names();
+    for (size_t i = 0; i < g_level_names.size(); i++) {
+        std::printf("[jfg] level %zu: %s\n", i, g_level_names[i].c_str());
+    }
+}
+#endif

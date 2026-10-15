@@ -1,0 +1,10 @@
+# The page's own hooks, added to the copy of jfg.us.toml tools/build_web.sh recompiles the game from.
+
+# The scheduler takes a task for hung once an RSP or RDP task has been current for 11 retraces (__scHandleRetrace counts
+# them at 0x800A38C0 and 0x800A38C4), and then shows its debug screen and stops. On the page the game runs on while
+# RT64 draws a frame and copies it back to RDRAM (the runtime lets it go at the display list's full sync), and a frame
+# that waits for its shaders takes a second and more, so both counts start again at every retrace: a task always ends.
+[[patches.hook]]
+func = "__scHandleRetrace"
+before_vram = 0x80050154
+text = "{ MEM_W(0X38C0, S32(0X800A << 16)) = 0; MEM_W(0X38C4, S32(0X800A << 16)) = 0; }"

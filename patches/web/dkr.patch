@@ -1,0 +1,1088 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 54af038..327d5b6 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -19,6 +19,27 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+     option(RECOMP_FLATPAK "Configure the build for Flatpak compatibility." OFF)
+ endif()
+ 
++# With Emscripten (emcmake cmake), the game builds as a page for a browser, JetForceGeminiRecompiled.html, through
++# lib/N64Recomp-browser/frontend: RT64 and the menus on WebGPU, mods off. tools/build_web.sh patches the libraries and
++# builds it (BUILDING.md, "The web page").
++if (EMSCRIPTEN)
++    # This project is cloned into the fork's web-build/, beside its lib/N64Recomp-browser.
++    set(N64RECOMP_BROWSER_DIR "${CMAKE_SOURCE_DIR}/../lib/N64Recomp-browser" CACHE PATH "N64Recomp-browser's checkout")
++    # Threads are pthreads (SharedArrayBuffer), and the runtime ends a game thread by throwing. -msimd128 is wasm SIMD,
++    # which every browser with WebGPU has, and -mtail-call makes the recompiled code's tail calls return_calls.
++    add_compile_options(-pthread -fwasm-exceptions -msimd128 -mtail-call)
++    # With -msimd128 xxHash would take its NEON path through Emscripten's arm_neon.h, which doesn't compile in C++
++    # there. XXH_HAS_INCLUDE is used for nothing else, so XXH3 stays scalar.
++    add_compile_options("-DXXH_HAS_INCLUDE(x)=0")
++    add_link_options(-pthread -fwasm-exceptions)
++    # ccache when it is on PATH (BUILDING.md, "The web page").
++    include(${N64RECOMP_BROWSER_DIR}/frontend/build_speed.cmake)
++    # The shaders the page builds before the game starts (src/rt64_shaders.txt says how they were recorded).
++    if (EXISTS ${CMAKE_SOURCE_DIR}/src/rt64_shaders.txt)
++        set(RT64_PREBUILT_SHADER_LIST ${CMAKE_SOURCE_DIR}/src/rt64_shaders.txt)
++    endif()
++endif()
++
+ # Avoid warning about DOWNLOAD_EXTRACT_TIMESTAMP in CMake 3.24:
+ if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
+     cmake_policy(SET CMP0135 NEW)
+@@ -55,11 +76,24 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/lib/lunasvg)
+ # set(BUILD_SHARED_LIBS "${BUILD_SHARED_LIBS_SAVED}")
+ SET(RMLUI_SVG_PLUGIN ON CACHE BOOL "" FORCE)
+ SET(RMLUI_TESTS_ENABLED OFF CACHE BOOL "" FORCE)
++if (EMSCRIPTEN)
++    # RmlUi's FreeType is Emscripten's port, in the build of it whose setjmp matches -fwasm-exceptions; the plain
++    # build's setjmp needs JavaScript exceptions. tools/build_web.sh builds it with "embuilder build freetype-legacysjlj".
++    set(FREETYPE_LIBRARY "${EMSCRIPTEN_SYSROOT}/lib/wasm32-emscripten/libfreetype-legacysjlj.a" CACHE FILEPATH "")
++endif()
+ add_subdirectory(${CMAKE_SOURCE_DIR}/lib/RmlUi)
+ target_compile_definitions(rmlui_core PRIVATE LUNASVG_BUILD_STATIC)
+ 
+ add_subdirectory(${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime)
+ 
++if (EMSCRIPTEN)
++    add_subdirectory(${N64RECOMP_BROWSER_DIR}/frontend ${CMAKE_BINARY_DIR}/web_frontend)
++    # fmt 11.1 (N64Recomp's) leans on <cstdlib> arriving through other headers, which Emscripten's libc++ doesn't do.
++    if (TARGET fmt)
++        target_compile_options(fmt PRIVATE -include cstdlib)
++    endif()
++endif()
++
+ target_include_directories(rt64 PRIVATE ${CMAKE_BINARY_DIR}/rt64/src)
+ 
+ # RecompiledFuncs - Library containing the primary recompiler output
+@@ -72,6 +106,12 @@ target_compile_options(RecompiledFuncs PRIVATE
+     -Wno-implicit-function-declaration
+ )
+ 
++# A call to an undeclared function links as a call whose signature may not match the callee, which wasm traps on. With
++# Emscripten that is an error in the recompiled code. The patched N64Recomp's funcs.h declares everything it calls.
++if (EMSCRIPTEN)
++    target_compile_options(RecompiledFuncs PRIVATE -Werror=implicit-function-declaration)
++endif()
++
+ target_include_directories(RecompiledFuncs PRIVATE
+     ${CMAKE_SOURCE_DIR}/include
+     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/ultramodern/include
+@@ -257,6 +297,13 @@ if (WIN32)
+     target_link_libraries(JetForceGeminiRecompiled PRIVATE SDL2 Winmm.lib)
+ endif()
+ 
++if (EMSCRIPTEN)
++    # Emscripten's ports of SDL2 and FreeType (for RmlUi). The menus' shaders are WGSL (RT64_WGSL), as RT64's are.
++    target_compile_options(JetForceGeminiRecompiled PRIVATE -sUSE_SDL=2 -sUSE_FREETYPE=1)
++    target_include_directories(JetForceGeminiRecompiled PRIVATE ${EMSCRIPTEN_SYSROOT}/include/SDL2)
++    target_compile_definitions(JetForceGeminiRecompiled PRIVATE RT64_WGSL=1)
++endif()
++
+ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+     find_package(SDL2 REQUIRED)
+ 
+@@ -300,10 +347,20 @@ target_link_libraries(JetForceGeminiRecompiled PRIVATE
+     rt64
+     RmlUi::Core
+     RmlUi::Debugger
+-    nfd
+     lunasvg
+ )
+ 
++if (EMSCRIPTEN)
++    # The page (lib/N64Recomp-browser/frontend), with the menus' assets and the controller mappings in its .data file.
++    # No ROM: the player picks theirs in the launcher, and it stays in the browser.
++    n64recomp_browser_frontend_page(JetForceGeminiRecompiled)
++    target_link_options(JetForceGeminiRecompiled PRIVATE
++        "SHELL:--preload-file ${CMAKE_SOURCE_DIR}/assets@/assets"
++        "SHELL:--preload-file ${RECOMP_CONTROLLER_DB_TXT}@/recompcontrollerdb.txt")
++else()
++    target_link_libraries(JetForceGeminiRecompiled PRIVATE nfd)
++endif()
++
+ if (${WIN32})
+     add_compile_definitions(NOMINMAX)
+ endif()
+@@ -331,7 +388,9 @@ else()
+             set(SPIRVCROSS "DYLD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/spirv-cross/lib/arm64" "${PROJECT_SOURCE_DIR}/lib/rt64//src/contrib/spirv-cross/bin/x64/spirv-cross")
+         endif()
+     else()
+-        if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
++        # DXC runs on the machine that builds, which for the page (Emscripten) isn't the target.
++        if((CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64") OR
++           (EMSCRIPTEN AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64"))
+             set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/x64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxc-linux")
+         else()
+             set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/arm64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/arm64/dxc-linux")
+@@ -339,6 +398,13 @@ else()
+     endif()
+ endif()
+ 
++# With Emscripten, RT64 builds its shaders as WGSL (RT64_WGSL), and so do these: what its build_*_shader functions need
++# to do that, which RT64 sets for its own directory only.
++if (EMSCRIPTEN)
++    set(RT64_WGSL ON)
++    set(RT64_PLUME_WGSL "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/plume/examples/cmake/modules/PlumeWGSL.cmake")
++endif()
++
+ build_vertex_shader(JetForceGeminiRecompiled "shaders/InterfaceVS.hlsl" "shaders/InterfaceVS.hlsl")
+ build_pixel_shader(JetForceGeminiRecompiled "shaders/InterfacePS.hlsl" "shaders/InterfacePS.hlsl")
+ 
+diff --git a/assets/launcher.rml b/assets/launcher.rml
+--- a/assets/launcher.rml
++++ b/assets/launcher.rml
+@@ -280,10 +280,7 @@
+ 									<div class="rl-keys">
+ 										<div class="rl-heading">While playing</div>
+-										<div class="rl-key-row"><div class="rl-key">Select / Esc</div><div>This settings menu (Profiles, Gameplay, Visuals, Textures and the rest)</div></div>
++										<div class="rl-key-row"><div class="rl-key">Select / Esc</div><div>This settings menu (Profiles, Gameplay, Visuals and the rest)</div></div>
+-										<div class="rl-key-row"><div class="rl-key">F10</div><div>Tools bar: cheats, level warp, items, weapons, texture packs (Alt: back to the game)</div></div>
+-										<div class="rl-key-row"><div class="rl-key">F9</div><div>The original all-in-one debug window</div></div>
+-										<div class="rl-key-row"><div class="rl-key">F5 / F6</div><div>Back to the title screen / next texture pack</div></div>
+-										<div class="rl-key-row"><div class="rl-key">F7</div><div>Fly camera for screenshots (Visuals has its settings)</div></div>
++										<!-- On a page the debug UI stays closed (src/debug_ui/backend.cpp), and F5-F10 with it. -->
+ 										<div class="rl-key-row"><div class="rl-key">F11 / Alt+Enter</div><div>Fullscreen</div></div>
+ 									</div>
+ 									<div class="rl-action-shadow rl-changelogs"><button id="rl_changelogs" class="rl-action rl-action--outline" data-event-click="show_changelog()" style="nav-left: #nav_play;">Changelogs</button></div>
+diff --git a/src/config/config.cpp b/src/config/config.cpp
+index eead20a..c8a76c2 100644
+--- a/src/config/config.cpp
++++ b/src/config/config.cpp
+@@ -188,6 +188,11 @@ std::filesystem::path get_executable_folder_path() {
+     if (!ec) {
+         cached = exe.parent_path();
+     }
++#elif defined(__EMSCRIPTEN__)
++    // In a browser, HOME (/home/web_user), which the page keeps in its IndexedDB, so saves and settings outlive a visit.
++    if (const char* home = getenv("HOME")) {
++        cached = home;
++    }
+ #endif
+     if (cached.empty()) {
+         cached = std::filesystem::current_path(ec);
+diff --git a/src/debug_ui/backend.cpp b/src/debug_ui/backend.cpp
+index 40c0625..ec249bd 100644
+--- a/src/debug_ui/backend.cpp
++++ b/src/debug_ui/backend.cpp
+@@ -1,5 +1,26 @@
+ #include "backend.hpp"
+ 
++#ifdef __EMSCRIPTEN__
++// The debug UI (F9, F10's toolbar, the overlay) draws through ImGui's Vulkan and D3D12 backends, which a page hasn't
++// got, so there it stays closed, as it does on macOS: nothing calls set_render_hooks, and the rest answers "closed".
++namespace dino::debug_ui::backend {
++
++ImGuiContext *dino_imgui_ctx = nullptr;
++bool is_open() { return false; }
++bool toolbar_mode() { return false; }
++bool toolbar_game_input() { return false; }
++bool in_ui_frame() { return false; }
++void set_overlay(bool) {}
++bool take_reset_request() { return false; }
++bool take_next_pack_request() { return false; }
++bool take_fly_request() { return false; }
++void begin() {}
++void end() {}
++void set_render_hooks() {}
++
++}
++#else
++
+ #include <atomic>
+ 
+ #ifdef _WIN32
+@@ -440,3 +461,4 @@ void set_render_hooks() {
+ }
+ 
+ }
++#endif
+diff --git a/src/input/input.cpp b/src/input/input.cpp
+index 523604c..0755bae 100644
+--- a/src/input/input.cpp
++++ b/src/input/input.cpp
+@@ -637,6 +637,67 @@ static float smoothstep(float from, float to, float amount) {
+     return std::lerp(from, to, amount);
+ }
+ 
++#ifdef __EMSCRIPTEN__
++#include <chrono>
++#include <string>
++#include <emscripten.h>
++#include <emscripten/threading.h>
++
++// Emscripten's SDL2 has no rumble (SDL_JoystickRumble is unsupported there), so on a page it goes to the browser's
++// Gamepad API, on the main thread where that is: vibrationActuator.playEffect("dual-rumble") on the gamepad behind
++// the joystick, its weak (high frequency) motor as SDL_GameControllerRumble's is driven. SDL names a browser gamepad
++// after its id with the spaces tidied, so the gamepad is the k-th whose id reads as the joystick's name, for the k-th
++// joystick of that name in the order SDL saw them connect (instance id).
++EM_JS(void, jfg_web_rumble, (const char *name_ptr, int rank, int strength), {
++    const tidy = (s) => s.split(' ').filter((word) => word).join(' ');
++    const name = tidy(UTF8ToString(name_ptr));
++    for (const pad of navigator.getGamepads ? navigator.getGamepads() : []) {
++        if (!pad || tidy(pad.id) !== name || rank-- > 0) {
++            continue;
++        }
++        const actuator = pad.vibrationActuator;
++        if (actuator && strength > 0) {
++            actuator.playEffect('dual-rumble', { duration: 5000, strongMagnitude: 0, weakMagnitude: strength / 65535 })
++                .catch(() => {});
++        } else if (actuator) {
++            actuator.reset().catch(() => {});
++        }
++        return;
++    }
++});
++
++// Called every retrace for every pad. Only a change of strength goes to the page, and, since a browser ends an effect
++// after 5 seconds at most, a rumble still on once a second.
++static void web_rumble(SDL_GameController* controller, uint16_t strength) {
++    struct Played {
++        std::string name; // the page reads it after this returns, so it stays here
++        uint16_t strength = 0;
++        std::chrono::steady_clock::time_point at;
++    };
++    static std::unordered_map<SDL_JoystickID, Played> played;
++    SDL_Joystick* joystick = SDL_GameControllerGetJoystick(controller);
++    SDL_JoystickID id = SDL_JoystickInstanceID(joystick);
++    auto now = std::chrono::steady_clock::now();
++    auto [it, added] = played.try_emplace(id);
++    Played &p = it->second;
++    if (!added && strength == p.strength && (strength == 0 || now - p.at < std::chrono::seconds(1))) {
++        return;
++    }
++    if (added) {
++        const char *name = SDL_JoystickName(joystick);
++        p.name = name ? name : "";
++    }
++    p.strength = strength;
++    p.at = now;
++    int rank = 0;
++    for (int i = 0; i < SDL_NumJoysticks(); i++) {
++        const char *name = SDL_JoystickNameForIndex(i);
++        rank += SDL_JoystickGetDeviceInstanceID(i) < id && p.name == (name ? name : "");
++    }
++    emscripten_async_run_in_main_runtime_thread(EM_FUNC_SIG_VIII, jfg_web_rumble, p.name.c_str(), rank, int(strength));
++}
++#endif
++
+ // Update rumble to attempt to mimic the way n64 rumble ramps up and falls off
+ void dino::input::update_rumble() {
+     // Note: values are not accurate! just approximations based on feel
+@@ -655,7 +716,12 @@ void dino::input::update_rumble() {
+     {
+         std::lock_guard lock{ InputState.cur_controllers_mutex };
+         for (const auto& controller : InputState.cur_controllers) {
++#ifdef __EMSCRIPTEN__
++            (void)duration;
++            web_rumble(controller, rumble_strength);
++#else
+             SDL_GameControllerRumble(controller, 0, rumble_strength, duration);
++#endif
+         }
+     }
+ }
+diff --git a/src/main.cpp b/src/main.cpp
+index f002599..73e91b3 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -7,7 +7,9 @@
+ #include <string>
+ #include <system_error>
+ 
+-#include "nfd.h"
++#ifndef __EMSCRIPTEN__
++#include "nfd.h" // a browser has no native file dialogs (runtime/support.cpp asks the page)
++#endif
+ #include "ultramodern/ultramodern.hpp"
+ #include "librecomp/game.hpp"
+ 
+@@ -77,6 +79,7 @@ std::vector<recomp::GameEntry> supported_games = {
+         // XXH3-64 of the US ROM (sha1 493ced9008dbe932d6e91179b68e8630cf23a023)
+         .rom_hash = 0x44830C263C2DE108,
+         .internal_name = "JET FORCE GEMINI    ",
++        .display_name = "Jet Force Gemini",
+         .game_id = u8"jfg-us",
+         .mod_game_id = "jet-force-gemini",
+         .save_type = recomp::SaveType::Flashram,
+@@ -151,7 +154,8 @@ int main(int argc, char** argv) {
+ 
+ #if !defined(__APPLE__)
+     // JFG port: run from the folder the executable is in, whatever folder it was started from. Assets, the controller
+-    // database, saves, settings and the options file are all found relative to it.
++    // database, saves, settings and the options file are all found relative to it. (On a page that folder is HOME,
++    // which the page keeps, and the assets and the controller database are preloaded in /: get_program_path.)
+     {
+         std::error_code ec;
+         std::filesystem::current_path(dino::config::get_executable_folder_path(), ec);
+@@ -168,11 +172,16 @@ int main(int argc, char** argv) {
+     // Map this executable into memory and lock it, which should keep it in physical memory. This ensures
+     // that there are no stutters from the OS having to load new pages of the executable whenever a new code page is run.
+     dino::runtime::PreloadContext preload_context;
++#ifdef __EMSCRIPTEN__
++    // A page's code is a wasm module, already in memory.
++    bool preloaded = false;
++#else
+     bool preloaded = preload_executable(preload_context);
+ 
+     if (!preloaded) {
+         fprintf(stderr, "Failed to preload executable!\n");
+     }
++#endif
+ 
+ #ifdef _WIN32
+     // Set up high resolution timing period.
+@@ -297,7 +306,7 @@ int main(int argc, char** argv) {
+         recomp::is_rom_valid(supported_games[0].game_id)) {
+         // HACK: This relies on unsupported behavior in the runtime and requires using a fork
+         //       of the runtime with a hack to avoid an uninitialized VI origin when doing this
+-        recomp::start_game(supported_games[0].game_id);
++        recomp::start_game(supported_games[0].game_id, "");
+         recompui::hide_all_contexts();
+     }
+ 
+@@ -325,8 +334,10 @@ int main(int argc, char** argv) {
+     timeEndPeriod(1);
+ #endif
+ 
++#ifndef __EMSCRIPTEN__
+     // Note: NFD_Init is done in create_gfx, not main
+     NFD_Quit();
++#endif
+ 
+     if (preloaded) {
+         release_preload(preload_context);
+diff --git a/src/recomp_api/recomp_data_api.cpp b/src/recomp_api/recomp_data_api.cpp
+index 2ece15e..8c93b94 100644
+--- a/src/recomp_api/recomp_data_api.cpp
++++ b/src/recomp_api/recomp_data_api.cpp
+@@ -4,6 +4,11 @@
+ #include <unordered_map>
+ #include <unordered_set>
+ 
++#include <climits>
++#ifdef __EMSCRIPTEN__
++// Emscripten's <limits.h> defines PAGESIZE, the name of one of slot_map's template parameters.
++#undef PAGESIZE
++#endif
+ #include "slot_map.h"
+ #include "ui/recomp_ui.h"
+ #include "librecomp/helpers.hpp"
+diff --git a/src/renderer/renderer.cpp b/src/renderer/renderer.cpp
+index 6c8ea13..394197e 100644
+--- a/src/renderer/renderer.cpp
++++ b/src/renderer/renderer.cpp
+@@ -19,4 +19,7 @@
+ #include <variant>
+ 
+ #include "ultramodern/config.hpp"
++#ifdef __EMSCRIPTEN__
++#include "ultramodern/ultramodern.hpp" // display_list_read
++#endif
+ 
+@@ -218,6 +221,12 @@ RT64::UserConfiguration::RefreshRate to_rt64(ultramodern::renderer::RefreshRate
+ }
+ 
+ RT64::UserConfiguration::InternalColorFormat to_rt64(ultramodern::renderer::HighPrecisionFramebuffer option) {
++#ifdef __EMSCRIPTEN__
++    // Core WebGPU has no rgba16unorm render target, the high precision framebuffer's format, so a page draws in the
++    // standard one whatever the setting (on by default here).
++    (void)option;
++    return RT64::UserConfiguration::InternalColorFormat::Standard;
++#endif
+     switch (option) {
+         case ultramodern::renderer::HighPrecisionFramebuffer::Off:
+             return RT64::UserConfiguration::InternalColorFormat::Standard;
+@@ -318,9 +327,9 @@ RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle win
+     fprintf(stderr, "[JFG] Initializing RT64 renderer\n");
+     static unsigned char dummy_rom_header[0x40];
+     recompui::set_render_hooks();
+-#if !defined(__APPLE__)
++#if !defined(__APPLE__) && !defined(__EMSCRIPTEN__)
+     // The inherited developer-only ImGui overlay has D3D12 and Vulkan
+-    // backends, but no Metal backend. The regular RmlUi launcher and menus
++    // backends, but no Metal (or WebGPU) backend. The regular RmlUi launcher and menus
+     // have their own renderer and remain enabled on macOS.
+     debug_ui::backend::set_render_hooks();
+ #endif
+@@ -331,6 +340,9 @@ RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle win
+     appCore.window = window_handle.window;
+ #elif defined(__linux__) || defined(__ANDROID__)
+     appCore.window = window_handle;
++#elif defined(__EMSCRIPTEN__)
++    // RT64 draws on the page's canvas, the one SDL's window is.
++    appCore.window = "#canvas";
+ #elif defined(__APPLE__)
+     appCore.window.window = window_handle.window;
+     appCore.window.view = window_handle.view;
+@@ -377,6 +389,11 @@ RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle win
+ 
+     // Create the RT64 application.
+     app = std::make_unique<RT64::Application>(appCore, appConfig);
++#ifdef __EMSCRIPTEN__
++    // The game's thread waits until each display list has been read (ultramodern's submit_rsp_task): let it go at the
++    // list's full sync, before RT64 waits for the GPU and render to RAM's copy, which on a page held the game to 20 fps.
++    RT64::fullSyncReachedCallback = ultramodern::display_list_read;
++#endif
+ 
+     // Set initial user config settings based on the current settings.
+     auto& cur_config = ultramodern::renderer::get_graphics_config();
+@@ -599,6 +616,25 @@ void RT64Context::update_game_aspect_override() {
+         game_aspect_override ? "enabled" : "disabled");
+ }
+ 
++// Before the game starts the runtime has every VI draw a black frame at fb_address (RecompFrontend's renderer does the
++// same): a fill of the 320x240 RGBA16 framebuffer.
++void RT64Context::send_dummy_workload(uint32_t fb_address) {
++    app->state->listProcessBegin();
++    app->state->rdp->setColorImage(0 /* G_IM_FMT_RGBA */, 2 /* G_IM_SIZ_16b */, 320, fb_address);
++    // G_AD_DISABLE | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE | G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_FILL | G_PM_NPRIMITIVE
++    // G_AC_NONE | G_ZS_PIXEL | G_RM_NOOP | G_RM_NOOP2
++    app->state->rdp->setOtherMode(0x382C30, 0);
++    app->state->rdp->fillRect(0, 0, 320 << 2, 240 << 2);
++#ifdef __EMSCRIPTEN__
++    // Not copied to RDRAM: the dummy framebuffer is game memory once the game starts, and on a page these lists can
++    // fall seconds behind the VIs that queue them (each copy waits for the GPU), so the copies would land on what the
++    // game has loaded there.
++    app->state->setRenderToRAM(0);
++#endif
++    app->state->fullSync();
++    app->state->listProcessEnd();
++}
++
+ void RT64Context::update_screen() {
+     update_game_aspect_override();
+     app->updateScreen();
+@@ -863,13 +899,13 @@ void enable_texture_pack(const recomp::mods::ModContext& context, const recomp::
+     texture_pack_action_queue.enqueue(TexturePackEnableAction{mod.manifest.mod_id});
+ 
+     // Check for the texture pack enabled config option.
+-    const recomp::mods::ConfigSchema& config_schema = context.get_mod_config_schema(mod.manifest.mod_id);
++    const recomp::config::ConfigSchema& config_schema = context.get_mod_config_schema(mod.manifest.mod_id);
+     auto find_it = config_schema.options_by_id.find(special_option_texture_pack_enabled);
+     if (find_it != config_schema.options_by_id.end()) {
+-        const recomp::mods::ConfigOption& config_option = config_schema.options[find_it->second];
++        const recomp::config::ConfigOption& config_option = config_schema.options[find_it->second];
+ 
+         if (is_texture_pack_enable_config_option(config_option, false)) {
+-            recomp::mods::ConfigValueVariant value_variant = context.get_mod_config_value(mod.manifest.mod_id, config_option.id);
++            recomp::config::ConfigValueVariant value_variant = context.get_mod_config_value(mod.manifest.mod_id, config_option.id);
+             uint32_t value;
+             if (uint32_t* value_ptr = std::get_if<uint32_t>(&value_variant)) {
+                 value = *value_ptr;
+@@ -903,16 +939,16 @@ void secondary_disable_texture_pack(const std::string& mod_id) {
+ 
+ // HD texture enable option. Must be an enum with two options.
+ // The first option is treated as disabled and the second option is treated as enabled.
+-bool is_texture_pack_enable_config_option(const recomp::mods::ConfigOption& option, bool show_errors) {
++bool is_texture_pack_enable_config_option(const recomp::config::ConfigOption& option, bool show_errors) {
+     if (option.id == special_option_texture_pack_enabled) {
+-        if (option.type != recomp::mods::ConfigOptionType::Enum) {
++        if (option.type != recomp::config::ConfigOptionType::Enum) {
+             if (show_errors) {
+                 recompui::message_box(("Mod has the special config option id for enabling an HD texture pack (\"" + special_option_texture_pack_enabled + "\"), but the config option is not an enum.").c_str());
+             }
+             return false;
+         }
+ 
+-        const recomp::mods::ConfigOptionEnum &option_enum = std::get<recomp::mods::ConfigOptionEnum>(option.variant);
++        const recomp::config::ConfigOptionEnum &option_enum = std::get<recomp::config::ConfigOptionEnum>(option.variant);
+         if (option_enum.options.size() != 2) {
+             if (show_errors) {
+                 recompui::message_box(("Mod has the special config option id for enabling an HD texture pack (\"" + special_option_texture_pack_enabled + "\"), but the config option doesn't have exactly 2 values.").c_str());
+diff --git a/src/renderer/renderer.hpp b/src/renderer/renderer.hpp
+index 1eeacd5..0d5a0c4 100644
+--- a/src/renderer/renderer.hpp
++++ b/src/renderer/renderer.hpp
+@@ -25,6 +25,7 @@ namespace dino::renderer {
+ 
+         void enable_instant_present() override;
+         void send_dl(const OSTask *task) override;
++        void send_dummy_workload(uint32_t fb_address) override;
+         void update_screen() override;
+         void shutdown() override;
+         uint32_t get_display_framerate() const override;
+@@ -56,5 +57,5 @@ namespace dino::renderer {
+ 
+     // Texture pack enable option. Must be an enum with two options.
+     // The first option is treated as disabled and the second option is treated as enabled.
+-    bool is_texture_pack_enable_config_option(const recomp::mods::ConfigOption& option, bool show_errors);
++    bool is_texture_pack_enable_config_option(const recomp::config::ConfigOption& option, bool show_errors);
+ }
+diff --git a/src/runtime/audio.cpp b/src/runtime/audio.cpp
+index 6c38c22..f9d659a 100644
+--- a/src/runtime/audio.cpp
++++ b/src/runtime/audio.cpp
+@@ -10,6 +10,9 @@
+ #include "common/error.hpp"
+ #include "common/sdl.hpp" // IWYU pragma: keep
+ #include "ui/recomp_ui.h"
++#ifdef __EMSCRIPTEN__
++#include "audio_output.h"
++#endif
+ 
+ namespace dino::runtime {
+ 
+@@ -31,6 +34,26 @@ constexpr uint32_t duplicated_input_frames = 4;
+ static uint32_t discarded_output_frames;
+ 
+ constexpr uint32_t bytes_per_frame = input_channels * sizeof(float);
++
++// On a page the sound plays on the browser's audio thread (audio_output.h), not through SDL's queue, whose callback
++// runs on the page's thread, WebGPU's.
++#ifdef __EMSCRIPTEN__
++static uint64_t get_queued_audio_bytes() {
++    return uint64_t(n64recomp_browser::audio::queued_frames()) * output_channels * sizeof(float);
++}
++
++static void queue_audio(const float* samples, uint32_t byte_count) {
++    n64recomp_browser::audio::queue(samples, byte_count / (output_channels * sizeof(float)));
++}
++#else
++static uint64_t get_queued_audio_bytes() {
++    return SDL_GetQueuedAudioSize(audio_device);
++}
++
++static void queue_audio(const float* samples, uint32_t byte_count) {
++    SDL_QueueAudio(audio_device, samples, byte_count);
++}
++#endif
+     
+ void queue_samples(int16_t* audio_data, size_t sample_count) {
+     // Buffer for holding the output of swapping the audio channels. This is reused across
+@@ -76,7 +99,7 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
+         throw std::runtime_error("Error using SDL audio converter");
+     }
+ 
+-    uint64_t cur_queued_microseconds = uint64_t(SDL_GetQueuedAudioSize(audio_device)) / bytes_per_frame * 1000000 / sample_rate;
++    uint64_t cur_queued_microseconds = get_queued_audio_bytes() / bytes_per_frame * 1000000 / sample_rate;
+     uint32_t num_bytes_to_queue = audio_convert.len_cvt - output_channels * discarded_output_frames * sizeof(swap_buffer[0]);
+     float* samples_to_queue = swap_buffer.data() + output_channels * discarded_output_frames / 2;
+ 
+@@ -94,13 +117,13 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
+ 
+     // Queue the swapped audio data.
+     // Offset the data start by only half the discarded frame count as the other half of the discarded frames are at the end of the buffer.
+-    SDL_QueueAudio(audio_device, samples_to_queue, num_bytes_to_queue);
++    queue_audio(samples_to_queue, num_bytes_to_queue);
+ }
+ 
+ size_t get_frames_remaining() {
+     constexpr float buffer_offset_frames = 1.0f;
+     // Get the number of remaining buffered audio bytes.
+-    uint64_t buffered_byte_count = SDL_GetQueuedAudioSize(audio_device);
++    uint64_t buffered_byte_count = get_queued_audio_bytes();
+ 
+     // Scale the byte count based on the ratio of sample rates and channel counts.
+     buffered_byte_count = buffered_byte_count * 2 * sample_rate / output_sample_rate / output_channels;
+@@ -139,6 +162,10 @@ void set_frequency(uint32_t freq) {
+ }
+ 
+ bool reset_audio(uint32_t output_freq) {
++#ifdef __EMSCRIPTEN__
++    // The page's audio context sets the rate.
++    output_freq = n64recomp_browser::audio::open(output_channels);
++#else
+     SDL_AudioSpec spec_desired{
+         .freq = (int)output_freq,
+         .format = AUDIO_F32,
+@@ -159,6 +186,7 @@ bool reset_audio(uint32_t output_freq) {
+     }
+ 
+     SDL_PauseAudioDevice(audio_device, 0);
++#endif
+ 
+     output_sample_rate = output_freq;
+     update_audio_converter();
+diff --git a/src/runtime/gfx.cpp b/src/runtime/gfx.cpp
+index ffe6015..ea32f85 100644
+--- a/src/runtime/gfx.cpp
++++ b/src/runtime/gfx.cpp
+@@ -1,6 +1,8 @@
+ #include "gfx.hpp"
+ 
+-#include "nfd.h"
++#ifndef __EMSCRIPTEN__
++#include "nfd.h" // a browser has no native file dialogs (support.cpp asks the page)
++#endif
+ #include "ultramodern/ultramodern.hpp"
+ 
+ #include "input/input.hpp"
+@@ -26,7 +28,12 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
+     SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
+     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+ 
++#ifdef __EMSCRIPTEN__
++    // Emscripten's SDL2 is built without haptics, and SDL_Init fails as a whole when asked for them.
++    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) < 0) {
++#else
+     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC) < 0) {
++#endif
+         exit_error("Failed to initialize SDL2: %s\n", SDL_GetError());
+     }
+ 
+@@ -36,7 +43,9 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
+ 
+     // Initialize native file dialogs.
+     // Note: NFD suggests that it should only be initialized *after* SDL.
++#ifndef __EMSCRIPTEN__
+     NFD_Init();
++#endif
+ 
+     return {};
+ }
+@@ -93,7 +102,9 @@ bool SetImageAsIcon(const char* filename, SDL_Window* window)
+ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::gfx_data_t, int width, int height) {
+     uint32_t flags = SDL_WINDOW_RESIZABLE;
+ 
+-#if defined(RT64_SDL_WINDOW_VULKAN)
++#if defined(__EMSCRIPTEN__)
++    // The page's canvas, which RT64 draws on through WebGPU.
++#elif defined(RT64_SDL_WINDOW_VULKAN)
+     flags |= SDL_WINDOW_VULKAN;
+ #elif defined(__APPLE__)
+     flags |= SDL_WINDOW_METAL;
+@@ -119,7 +130,8 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
+ 
+ #if defined(_WIN32)
+     return ultramodern::renderer::WindowHandle{ wmInfo.info.win.window, GetCurrentThreadId() };
+-#elif defined(__linux__) || defined(__ANDROID__)
++#elif defined(__linux__) || defined(__ANDROID__) || defined(__EMSCRIPTEN__)
++    // In a browser the window is the page's canvas, sized by the page (SDL follows its CSS size).
+     return ultramodern::renderer::WindowHandle{ window };
+ #elif defined(__APPLE__)
+     metal_view = SDL_Metal_CreateView(window);
+diff --git a/src/runtime/support.cpp b/src/runtime/support.cpp
+index 9416f23..b29235d 100644
+--- a/src/runtime/support.cpp
++++ b/src/runtime/support.cpp
+@@ -2,13 +2,20 @@
+ #include "config/config.hpp"
+ #include <SDL.h>
+ #include <cstdlib>
++#ifndef __EMSCRIPTEN__
+ #include "nfd.h"
++#endif
+ #include "RmlUi/Core.h"
+ 
+ #ifdef __APPLE__
+ #include <dispatch/dispatch.h>
+ #include <mach-o/dyld.h>
+ #include <pthread.h>
++#elif defined(__EMSCRIPTEN__)
++#include <atomic>
++#include <cmath>
++#include <emscripten.h>
++#include <emscripten/threading.h>
+ #endif
+ 
+ namespace dino::runtime {
+@@ -68,6 +75,80 @@ namespace dino::runtime {
+ #endif
+ 
+     // MARK: - Internal Helpers
++#if defined(__EMSCRIPTEN__)
++    // A browser has no file dialogs, only the page's file picker (an <input type="file">), and it hands over a file's
++    // bytes, not its path. So the main thread, where the page is, opens the picker, writes what is picked to
++    // /tmp/picked-<n>/ in the in-memory file system, and wakes the thread that asked, which gets those paths: the same
++    // as a native dialog that blocks until it closes. A browser only opens a picker on a click or a key the player
++    // has just pressed. If the click on the menu's button no longer counts as one by the time the request reaches the
++    // page, the page shows a button of its own for it.
++    EM_JS(void, jfg_web_pick_files, (int multiple, const char *folder_ptr, int32_t *state_ptr), {
++        const folder = UTF8ToString(folder_ptr), state = state_ptr >> 2;
++        const finish = (result) => { Atomics.store(HEAP32, state, result); Atomics.notify(HEAP32, state); };
++        const input = document.createElement('input');
++        input.type = 'file';
++        input.multiple = !!multiple;
++        input.addEventListener('cancel', () => finish(2));
++        input.addEventListener('change', async () => {
++            FS.mkdirTree(folder);
++            for (const file of input.files) {
++                FS.writeFile(folder + '/' + file.name, new Uint8Array(await file.arrayBuffer()));
++            }
++            finish(input.files.length > 0 ? 1 : 2);
++        });
++        if (!navigator.userActivation || navigator.userActivation.isActive) {
++            input.click();
++            return;
++        }
++        const prompt = document.createElement('div');
++        prompt.style.cssText = 'position:fixed;inset:0;display:flex;gap:1em;align-items:center;justify-content:center;' +
++            'background:rgba(0,0,0,0.6);z-index:1000';
++        const button = (text, action) => {
++            const b = document.createElement('button');
++            b.textContent = text;
++            b.style.cssText = 'font-size:1.2em;padding:0.6em 1.2em';
++            b.onclick = () => { prompt.remove(); action(); };
++            prompt.appendChild(b);
++        };
++        button(multiple ? 'Choose files' : 'Choose a file', () => input.click());
++        button('Cancel', () => finish(2));
++        document.body.appendChild(prompt);
++    });
++
++    static std::list<std::filesystem::path> pick_files(bool multiple) {
++        static int pick_count = 0;
++        const std::string folder = "/tmp/picked-" + std::to_string(++pick_count);
++        std::atomic<int32_t> state{0}; // 1 picked, 2 cancelled
++        emscripten_async_run_in_main_runtime_thread(EM_FUNC_SIG_VIII, jfg_web_pick_files, int(multiple), folder.c_str(),
++            reinterpret_cast<int32_t *>(&state));
++        while (state.load() == 0) {
++            emscripten_futex_wait(&state, 0, INFINITY);
++        }
++        std::list<std::filesystem::path> paths;
++        if (state.load() == 1) {
++            for (const auto& entry : std::filesystem::directory_iterator(folder)) {
++                paths.push_back(entry.path());
++            }
++        }
++        return paths;
++    }
++
++    void perform_file_dialog_operation(const std::function<void(bool, const std::filesystem::path&)>& callback) {
++        std::list<std::filesystem::path> paths = pick_files(false);
++        callback(!paths.empty(), paths.empty() ? std::filesystem::path{} : paths.front());
++        for (const auto& path : paths) {
++            std::filesystem::remove(path); // a copy in memory, of a file the callback has read or copied by now
++        }
++    }
++
++    void perform_file_dialog_operation_multiple(const std::function<void(bool, const std::list<std::filesystem::path>&)>& callback) {
++        std::list<std::filesystem::path> paths = pick_files(true);
++        callback(!paths.empty(), paths);
++        for (const auto& path : paths) {
++            std::filesystem::remove(path);
++        }
++    }
++#else
+     static void show_nfd_error() {
+         const char *msg = NFD_GetError();
+         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, dino::config::program_name.data(), msg, nullptr);
+@@ -115,6 +196,7 @@ namespace dino::runtime {
+ 
+         callback(success, paths);
+     }
++#endif
+ 
+     // MARK: - Public API
+ 
+@@ -123,6 +205,9 @@ namespace dino::runtime {
+         return get_bundle_resource_directory();
+ #elif defined(__linux__) && defined(RECOMP_FLATPAK)
+         return "/app/bin";
++#elif defined(__EMSCRIPTEN__)
++        // Where the page preloads its assets and controller database (CMakeLists.txt).
++        return "/";
+ #else
+         static std::optional<std::filesystem::path> program_path;
+         if (!program_path.has_value()) {
+diff --git a/src/ui/core/ui_context.cpp b/src/ui/core/ui_context.cpp
+index b9eb50f..b7d9f0e 100644
+--- a/src/ui/core/ui_context.cpp
++++ b/src/ui/core/ui_context.cpp
+@@ -3,6 +3,11 @@
+ #include <unordered_map>
+ #include <fstream>
+ 
++#include <climits>
++#ifdef __EMSCRIPTEN__
++// Emscripten's <limits.h> defines PAGESIZE, the name of one of slot_map's template parameters.
++#undef PAGESIZE
++#endif
+ #include "slot_map.h"
+ #include "RmlUi/Core/StreamMemory.h"
+ 
+diff --git a/src/ui/ui_config.cpp b/src/ui/ui_config.cpp
+index cb370f8..b24f621 100644
+--- a/src/ui/ui_config.cpp
++++ b/src/ui/ui_config.cpp
+@@ -612,6 +612,16 @@ public:
+                         tab->SetProperty(Rml::PropertyId::Display, Rml::Style::Display::None);
+                     }
+                 }
++#ifdef __EMSCRIPTEN__
++                // A page has no mods (the live recompiler emits machine code) or texture packs (no folder to put one
++                // in), and a program that ends leaves the page dead: a reload or closing the tab is the way out
++                // there. So no Mods or Textures tab and no Quit.
++                for (const char* id : { "tab_mods", "tab_jfg_textures", "config__quit-game-button" }) {
++                    if (Rml::Element* element = doc->GetElementById(id)) {
++                        element->SetProperty(Rml::PropertyId::Display, Rml::Style::Display::None);
++                    }
++                }
++#endif
+             }
+             if (old_context != recompui::ContextId::null()) {
+                 old_context.open();
+diff --git a/src/ui/ui_launcher.cpp b/src/ui/ui_launcher.cpp
+index 39302c2..92fa399 100644
+--- a/src/ui/ui_launcher.cpp
++++ b/src/ui/ui_launcher.cpp
+@@ -160,7 +160,7 @@ void select_rom() {
+ 
+ void start_game() {
+     jfg_launcher_commit_settings(); // JFG PORT: settings changed on the launcher's pages
+-    recomp::start_game(supported_games[0].game_id);
++    recomp::start_game(supported_games[0].game_id, "");
+     recompui::hide_all_contexts();
+ }
+ 
+@@ -186,6 +186,33 @@ public:
+         queue_launcher_image("jfg_scanlines", "jfg_launcher/scanlines.png");
+         logo_available = queue_launcher_image("jfg_logo", "jfg_launcher/logo.png");
+ 		launcher_context = recompui::create_context(dino::runtime::get_asset_path("launcher.rml"));
++#ifdef __EMSCRIPTEN__
++        // A program that ends leaves the page dead (a reload or closing the tab is the way out), so no Exit there,
++        // and no Texture Packs: a page has no folder to put one in.
++        {
++            recompui::ContextId old_context = recompui::try_close_current_context();
++            if (Rml::ElementDocument* doc = launcher_context.get_document()) {
++                for (const char* id : { "nav_exit", "tab_jfg_textures" }) {
++                    if (Rml::Element* button = doc->GetElementById(id)) {
++                        button->GetParentNode()->SetProperty(Rml::PropertyId::Display, Rml::Style::Display::None);
++                    }
++                }
++                if (Rml::Element* general = doc->GetElementById("tab_general")) {
++                    general->SetProperty("nav-down", "#nav_about");
++                }
++                if (Rml::Element* about = doc->GetElementById("nav_about")) {
++                    about->SetProperty("nav-up", "#tab_general");
++                    about->SetProperty("nav-down", "#nav_play");
++                }
++                if (Rml::Element* play = doc->GetElementById("nav_play")) {
++                    play->SetProperty("nav-up", "#nav_about");
++                }
++            }
++            if (old_context != recompui::ContextId::null()) {
++                old_context.open();
++            }
++        }
++#endif
+     }
+     void register_events(recompui::UiEventListenerInstancer& listener) override {
+         recompui::register_event(listener, "select_rom",
+@@ -312,7 +339,10 @@ public:
+             model_handle.DirtyVariable("update_percent");
+             model_handle.DirtyVariable("update_status");
+         });
++#ifndef __EMSCRIPTEN__
++        // A page is updated where it is served, and can't install a release.
+         jfg_update_check_start(version_string);
++#endif
+ 
+         // JFG PORT: the launcher's pages (see the top of this file).
+         constructor.Bind("page", &launcher_page);
+diff --git a/src/ui/ui_mod_installer.cpp b/src/ui/ui_mod_installer.cpp
+index 013b7c8..e16a8f0 100644
+--- a/src/ui/ui_mod_installer.cpp
++++ b/src/ui/ui_mod_installer.cpp
+@@ -15,6 +15,9 @@ namespace recompui {
+         return file_path.extension() == ".so" || file_path.filename().string().find(".so.") != std::string::npos;
+ #elif defined(__APPLE__)
+         return file_path.extension() == ".dylib";
++#elif defined(__EMSCRIPTEN__)
++        // A page can't load a native library, and mods are off there anyway.
++        return false;
+ #else
+         static_assert(false, "Unimplemented for this platform.");
+ #endif
+diff --git a/src/ui/ui_mod_menu.cpp b/src/ui/ui_mod_menu.cpp
+index 2279aed..f9cb735 100644
+--- a/src/ui/ui_mod_menu.cpp
++++ b/src/ui/ui_mod_menu.cpp
+@@ -273,6 +273,9 @@ void ModMenu::open_mods_folder() {
+ #elif defined(__APPLE__)
+     std::string command = "open \"" + mods_directory.string() + "\"";
+     std::system(command.c_str());
++#elif defined(__EMSCRIPTEN__)
++    // A page has no folders to show; mods are off there anyway.
++    (void)mods_directory;
+ #else
+     static_assert(false, "Not implemented for this platform.");
+ #endif
+@@ -312,7 +315,7 @@ void ModMenu::mod_selected(uint32_t mod_index) {
+ 
+     if (active_mod_index >= 0) {
+         std::string thumbnail_src = generate_thumbnail_src_for_mod(mod_details[mod_index].mod_id);
+-        const recomp::mods::ConfigSchema &config_schema = recomp::mods::get_mod_config_schema(mod_details[active_mod_index].mod_id);
++        const recomp::config::ConfigSchema &config_schema = recomp::mods::get_mod_config_schema(mod_details[active_mod_index].mod_id);
+         bool toggle_checked = is_mod_enabled_or_auto(mod_details[mod_index].mod_id);
+         bool auto_enabled = recomp::mods::is_mod_auto_enabled(mod_details[mod_index].mod_id);
+         bool toggle_enabled = !auto_enabled && (mod_details[mod_index].runtime_toggleable || !ultramodern::is_game_started());
+@@ -451,11 +454,21 @@ ContextId get_config_sub_menu_context_id() {
+     return sub_menu_context;
+ }
+ 
+-bool ModMenu::handle_special_config_options(const recomp::mods::ConfigOption& option, const recomp::mods::ConfigValueVariant& config_value) {
++// The runtime keeps a mod's enum options with a key and a value each (recomp::config); the radio buttons take their
++// names, in order.
++static std::vector<std::string> option_names(const recomp::config::ConfigOptionEnum &option_enum) {
++    std::vector<std::string> names;
++    for (const recomp::config::ConfigOptionEnumOption &option : option_enum.options) {
++        names.push_back(option.name);
++    }
++    return names;
++}
++
++bool ModMenu::handle_special_config_options(const recomp::config::ConfigOption& option, const recomp::config::ConfigValueVariant& config_value) {
+     if (dino::renderer::is_texture_pack_enable_config_option(option, true)) {
+-        const recomp::mods::ConfigOptionEnum &option_enum = std::get<recomp::mods::ConfigOptionEnum>(option.variant);
++        const recomp::config::ConfigOptionEnum &option_enum = std::get<recomp::config::ConfigOptionEnum>(option.variant);
+ 
+-        config_sub_menu->add_radio_option(option.id, option.name, option.description, std::get<uint32_t>(config_value), option_enum.options,
++        config_sub_menu->add_radio_option(option.id, option.name, option.description, std::get<uint32_t>(config_value), option_names(option_enum),
+             [this](const std::string &id, uint32_t value) {
+                 mod_enum_option_changed(id, value);
+                 mod_hd_textures_enabled_changed(value);
+@@ -477,9 +490,9 @@ void ModMenu::mod_configure_requested() {
+         sub_menu_context.open();
+         config_sub_menu->clear_options();
+ 
+-        const recomp::mods::ConfigSchema &config_schema = recomp::mods::get_mod_config_schema(mod_details[active_mod_index].mod_id);
+-        for (const recomp::mods::ConfigOption &option : config_schema.options) {
+-            recomp::mods::ConfigValueVariant config_value = recomp::mods::get_mod_config_value(mod_details[active_mod_index].mod_id, option.id);
++        const recomp::config::ConfigSchema &config_schema = recomp::mods::get_mod_config_schema(mod_details[active_mod_index].mod_id);
++        for (const recomp::config::ConfigOption &option : config_schema.options) {
++            recomp::config::ConfigValueVariant config_value = recomp::mods::get_mod_config_value(mod_details[active_mod_index].mod_id, option.id);
+             if (std::holds_alternative<std::monostate>(config_value)) {
+                 continue;
+             }
+@@ -489,19 +502,19 @@ void ModMenu::mod_configure_requested() {
+             }
+ 
+             switch (option.type) {
+-            case recomp::mods::ConfigOptionType::Enum: {
+-                const recomp::mods::ConfigOptionEnum &option_enum = std::get<recomp::mods::ConfigOptionEnum>(option.variant);
+-                config_sub_menu->add_radio_option(option.id, option.name, option.description, std::get<uint32_t>(config_value), option_enum.options,
++            case recomp::config::ConfigOptionType::Enum: {
++                const recomp::config::ConfigOptionEnum &option_enum = std::get<recomp::config::ConfigOptionEnum>(option.variant);
++                config_sub_menu->add_radio_option(option.id, option.name, option.description, std::get<uint32_t>(config_value), option_names(option_enum),
+                     [this](const std::string &id, uint32_t value){ mod_enum_option_changed(id, value); });
+                 break;
+             }
+-            case recomp::mods::ConfigOptionType::Number: {
+-                const recomp::mods::ConfigOptionNumber &option_number = std::get<recomp::mods::ConfigOptionNumber>(option.variant);
++            case recomp::config::ConfigOptionType::Number: {
++                const recomp::config::ConfigOptionNumber &option_number = std::get<recomp::config::ConfigOptionNumber>(option.variant);
+                 config_sub_menu->add_slider_option(option.id, option.name, option.description, std::get<double>(config_value), option_number.min, option_number.max, option_number.step, option_number.percent,
+                     [this](const std::string &id, double value){ mod_number_option_changed(id, value); });
+                 break;
+             }
+-            case recomp::mods::ConfigOptionType::String: {
++            case recomp::config::ConfigOptionType::String: {
+                 config_sub_menu->add_text_option(option.id, option.name, option.description, std::get<std::string>(config_value),
+                     [this](const std::string &id, const std::string &value){ mod_string_option_changed(id, value); });
+                 break;
+diff --git a/src/ui/ui_mod_menu.h b/src/ui/ui_mod_menu.h
+index 90d104c..594feca 100644
+--- a/src/ui/ui_mod_menu.h
++++ b/src/ui/ui_mod_menu.h
+@@ -86,7 +86,7 @@ private:
+     void mod_selected(uint32_t mod_index);
+     void mod_dragged(uint32_t mod_index, EventDrag drag);
+     void mod_configure_requested();
+-    bool handle_special_config_options(const recomp::mods::ConfigOption& option, const recomp::mods::ConfigValueVariant& config_value);
++    bool handle_special_config_options(const recomp::config::ConfigOption& option, const recomp::config::ConfigValueVariant& config_value);
+     void mod_enum_option_changed(const std::string &id, uint32_t value);
+     void mod_string_option_changed(const std::string &id, const std::string &value);
+     void mod_number_option_changed(const std::string &id, double value);
+diff --git a/src/ui/ui_renderer.cpp b/src/ui/ui_renderer.cpp
+index b538305..34a3365 100644
+--- a/src/ui/ui_renderer.cpp
++++ b/src/ui/ui_renderer.cpp
+@@ -16,10 +16,17 @@
+ #include "ui_renderer.h"
+ #include "runtime/support.hpp"
+ 
++#if defined(RT64_WGSL)
++// WebGPU (RT64's WGSL build, always on with Emscripten): the shaders are WGSL only.
++#   include "InterfaceVS.hlsl.wgsl.h"
++#   include "InterfacePS.hlsl.wgsl.h"
++#else
+ #include "InterfaceVS.hlsl.spirv.h"
+ #include "InterfacePS.hlsl.spirv.h"
++#endif
+ 
+-#ifdef _WIN32
++#if defined(RT64_WGSL)
++#elif defined(_WIN32)
+ #   include "InterfaceVS.hlsl.dxil.h"
+ #   include "InterfacePS.hlsl.dxil.h"
+ #elif defined(__APPLE__)
+@@ -27,7 +34,12 @@
+ #   include "InterfacePS.hlsl.metal.h"
+ #endif
+ 
+-#ifdef _WIN32
++#if defined(RT64_WGSL)
++#    define GET_SHADER_BLOB(name, format) \
++        ((format) == plume::RenderShaderFormat::WGSL ? name##BlobWGSL : nullptr)
++#    define GET_SHADER_SIZE(name, format) \
++        ((format) == plume::RenderShaderFormat::WGSL ? std::size(name##BlobWGSL) : 0)
++#elif defined(_WIN32)
+ #    define GET_SHADER_BLOB(name, format) \
+         ((format) == plume::RenderShaderFormat::SPIRV ? name##BlobSPIRV : \
+         (format) == plume::RenderShaderFormat::DXIL ? name##BlobDXIL : nullptr)
+@@ -104,11 +116,13 @@ class RmlRenderInterface_RT64_impl : public Rml::RenderInterfaceCompatibility {
+     static constexpr uint32_t initial_index_buffer_size = 1024 * sizeof(int);
+     static constexpr plume::RenderFormat RmlTextureFormat = plume::RenderFormat::R8G8B8A8_UNORM;
+     static constexpr plume::RenderFormat RmlTextureFormatBgra = plume::RenderFormat::B8G8R8A8_UNORM;
+-    static constexpr plume::RenderFormat SwapChainFormat = plume::RenderFormat::B8G8R8A8_UNORM;
+     static constexpr uint32_t RmlTextureFormatBytesPerPixel = RenderFormatSize(RmlTextureFormat);
+     static_assert(RenderFormatSize(RmlTextureFormatBgra) == RmlTextureFormatBytesPerPixel);
+     plume::RenderInterface* interface_;
+     plume::RenderDevice* device_;
++    // The swap chain's format, which the menus draw into: the device's preferred one, as RT64 creates it with (bgra8unorm
++    // natively; on a page the one the browser presents without a copy).
++    plume::RenderFormat swap_chain_format_;
+     int scissor_x_ = 0;
+     int scissor_y_ = 0;
+     int scissor_width_ = 0;
+@@ -155,10 +169,11 @@ public:
+     RmlRenderInterface_RT64_impl(plume::RenderInterface* interface, plume::RenderDevice* device) {
+         interface_ = interface;
+         device_ = device;
++        swap_chain_format_ = device->getCapabilities().preferredSwapChainFormat;
+ 
+         // Enable 4X MSAA if supported by the device.
+         const plume::RenderSampleCounts desired_sample_count = plume::RenderSampleCount::COUNT_8;
+-        if (device_->getSampleCountsSupported(SwapChainFormat) & desired_sample_count) {
++        if (device_->getSampleCountsSupported(swap_chain_format_) & desired_sample_count) {
+             multisampling_.sampleCount = desired_sample_count;
+         }
+ 
+@@ -236,7 +251,7 @@ public:
+             .dstBlendAlpha = plume::RenderBlend::INV_SRC_ALPHA,
+             .blendOpAlpha = plume::RenderBlendOperation::ADD,
+         };
+-        pipeline_desc.renderTargetFormat[0] = SwapChainFormat; // TODO: Use whatever format the swap chain was created with.
++        pipeline_desc.renderTargetFormat[0] = swap_chain_format_;
+         pipeline_desc.renderTargetCount = 1;
+         pipeline_desc.cullMode = plume::RenderCullMode::NONE;
+         pipeline_desc.inputSlots = &vertex_slot_;
+@@ -588,8 +603,8 @@ public:
+         if (multisampling_.sampleCount > 1) {
+             if (window_width_ != image_width || window_height_ != image_height) {
+                 screen_framebuffer_.reset();
+-                screen_texture_ = device_->createTexture(plume::RenderTextureDesc::ColorTarget(image_width, image_height, SwapChainFormat));
+-                screen_texture_ms_ = device_->createTexture(plume::RenderTextureDesc::ColorTarget(image_width, image_height, SwapChainFormat, multisampling_));
++                screen_texture_ = device_->createTexture(plume::RenderTextureDesc::ColorTarget(image_width, image_height, swap_chain_format_));
++                screen_texture_ms_ = device_->createTexture(plume::RenderTextureDesc::ColorTarget(image_width, image_height, swap_chain_format_, multisampling_));
+                 const plume::RenderTexture *color_attachment = screen_texture_ms_.get();
+                 screen_framebuffer_ = device_->createFramebuffer(plume::RenderFramebufferDesc(&color_attachment, 1));
+                 screen_descriptor_set_->setTexture(0, screen_texture_.get(), plume::RenderTextureLayout::SHADER_READ);
+diff --git a/src/ui/ui_state.cpp b/src/ui/ui_state.cpp
+index 07acc5c..03f6a51 100644
+--- a/src/ui/ui_state.cpp
++++ b/src/ui/ui_state.cpp
+@@ -945,7 +945,10 @@ void recompui::release_image(const std::string &src) {
+ }
+ 
+ void recompui::drop_files(const std::list<std::filesystem::path> &file_list) {
+-    // Prevent mod installation after the game has started.
++    // Prevent mod installation after the game has started, and on a page, where mods are off.
++#ifdef __EMSCRIPTEN__
++    return;
++#endif
+     if (ultramodern::is_game_started()) {
+         return;
+     }
