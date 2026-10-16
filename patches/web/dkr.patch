@@ -2,7 +2,7 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 54af038..327d5b6 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -19,6 +19,27 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+@@ -19,6 +19,31 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
      option(RECOMP_FLATPAK "Configure the build for Flatpak compatibility." OFF)
  endif()
  
@@ -10,6 +10,10 @@ index 54af038..327d5b6 100644
 +# lib/N64Recomp-browser/frontend: RT64 and the menus on WebGPU, mods off. tools/build_web.sh patches the libraries and
 +# builds it (BUILDING.md, "The web page").
 +if (EMSCRIPTEN)
++    # Every library static. Below, set(BUILD_SHARED_LIBS OFF) loses to lunasvg's option(BUILD_SHARED_LIBS ... ON) on a
++    # build dir's first configure (policy CMP0077's old behaviour), and a shared lunasvg makes Emscripten link the page
++    # relocatable, which wasm-ld refuses for an EM_JS function whose address is taken ("recompile with -fPIC").
++    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 +    # This project is cloned into the fork's web-build/, beside its lib/N64Recomp-browser.
 +    set(N64RECOMP_BROWSER_DIR "${CMAKE_SOURCE_DIR}/../lib/N64Recomp-browser" CACHE PATH "N64Recomp-browser's checkout")
 +    # Threads are pthreads (SharedArrayBuffer), and the runtime ends a game thread by throwing. -msimd128 is wasm SIMD,
