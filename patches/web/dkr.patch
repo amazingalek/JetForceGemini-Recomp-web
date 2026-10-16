@@ -150,10 +150,47 @@ diff --git a/assets/launcher.rml b/assets/launcher.rml
  									</div>
  									<div class="rl-action-shadow rl-changelogs"><button id="rl_changelogs" class="rl-action rl-action--outline" data-event-click="show_changelog()" style="nav-left: #nav_play;">Changelogs</button></div>
 diff --git a/src/config/config.cpp b/src/config/config.cpp
-index eead20a..c8a76c2 100644
+index eead20a..67b0f1a 100644
 --- a/src/config/config.cpp
 +++ b/src/config/config.cpp
-@@ -188,6 +188,11 @@ std::filesystem::path get_executable_folder_path() {
+@@ -31,12 +31,22 @@ constexpr auto hr_default             = ultramodern::renderer::HUDRatioMode::Cla
+ constexpr auto api_default            = ultramodern::renderer::GraphicsApi::Auto;
+ constexpr auto ar_default             = ultramodern::renderer::AspectRatio::Expand;
+ constexpr auto msaa_default           = ultramodern::renderer::Antialiasing::MSAA2X;
++#ifdef __EMSCRIPTEN__
++// A page presents at the display's rate, RT64 interpolating between the game's frames, as every N64Recomp-browser page
++// does (its README, The recomp's own code).
++constexpr auto rr_default             = ultramodern::renderer::RefreshRate::Display;
++#else
+ constexpr auto rr_default             = ultramodern::renderer::RefreshRate::Original;
++#endif
+ constexpr auto hpfb_default           = ultramodern::renderer::HighPrecisionFramebuffer::On;
+ constexpr int ds_default              = 1;
+ constexpr int rr_manual_default       = 60;
+ constexpr bool developer_mode_default = false;
++#ifdef __EMSCRIPTEN__
++constexpr int graphics_config_version = 6; // 6: a page's Framerate moved to Display once (below)
++#else
+ constexpr int graphics_config_version = 5;
++#endif
+ constexpr int controls_config_version = 3;
+ 
+ static bool is_steam_deck = false;
+@@ -158,6 +168,13 @@ void graphics_config_from_json(const nlohmann::json& j, ultramodern::renderer::G
+         config.rr_option = ultramodern::renderer::RefreshRate::Original;
+     }
+ 
++#ifdef __EMSCRIPTEN__
++    // A page's settings saved before version 6 hold the desktop's Original: move them to Display once.
++    if (config_version < 6) {
++        config.rr_option = rr_default;
++    }
++#endif
++
+ }
+ 
+ void input_field_to_json(nlohmann::json& j, const dino::input::InputField& field) {
+@@ -188,6 +205,11 @@ std::filesystem::path get_executable_folder_path() {
      if (!ec) {
          cached = exe.parent_path();
      }
