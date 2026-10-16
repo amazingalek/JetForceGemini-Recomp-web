@@ -94,7 +94,7 @@ How the page plays in Chrome and Firefox, run by run, is recorded in N64Recomp-b
 On the page the Graphics menu's Framerate is Display by default, where the desktop build's is Original:
 `patches/web/dkr.patch` sets `rr_default` with Emscripten and moves a page's settings saved before graphics config
 version 6 to Display once, so RT64 interpolates between the game's frames to the display's rate. Before
-N64Recomp-browser v0.54.0 (this pins v0.50.0) it interpolates only now and then in play: the game's shadows' display
+N64Recomp-browser v0.54.0 it interpolates only now and then in play: the game's shadows' display
 list before each frame's reads as a frame of its own, and the game's frames take 2 and 3 VIs, which rt64 179adb8
 handles. The game's own Frame Rate setting (Visuals) stays Original, 30 frames a second dropping to 20 when a
 frame runs long, as on the N64. On the page every frame does:
