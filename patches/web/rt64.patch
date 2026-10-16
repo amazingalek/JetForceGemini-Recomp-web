@@ -1,8 +1,8 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 9ad062b..7a21df9 100644
+index b9145b8..c1d357c 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -404,6 +404,7 @@ set (SOURCES
+@@ -406,6 +406,7 @@ set (SOURCES
  
      "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi.cpp"
      "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3d.cpp"
@@ -10,7 +10,7 @@ index 9ad062b..7a21df9 100644
      "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3dex.cpp"
      "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3dex2.cpp"
      "${PROJECT_SOURCE_DIR}/src/gbi/rt64_gbi_f3dgolden.cpp"
-@@ -720,6 +721,12 @@ build_compute_shader(rt64 "src/shaders/HistogramSetCS.hlsl")
+@@ -747,6 +748,12 @@ build_compute_shader(rt64 "src/shaders/HistogramSetCS.hlsl")
  build_compute_shader(rt64 "src/shaders/IdleCS.hlsl")
  build_compute_shader(rt64 "src/shaders/LuminanceHistogramCS.hlsl")
  build_pixel_shader(  rt64 "src/shaders/PostBlendDitherNoisePS.hlsl" "src/shaders/PostBlendDitherNoiseAddPS.hlsl" "-D ADD_MODE")
@@ -23,7 +23,7 @@ index 9ad062b..7a21df9 100644
  build_pixel_shader(  rt64 "src/shaders/PostBlendDitherNoisePS.hlsl" "src/shaders/PostBlendDitherNoiseSubPS.hlsl" "-D SUB_MODE")
  build_pixel_shader(  rt64 "src/shaders/PostBlendDitherNoisePS.hlsl" "src/shaders/PostBlendDitherNoiseSubNegativePS.hlsl" "-D SUB_MODE" "-D NEGATIVE_MODE")
  build_compute_shader(rt64 "src/shaders/RSPModifyCS.hlsl")
-@@ -751,4 +758,3 @@ build_pixel_shader(  rt64 "src/shaders/Im3DPS.hlsl")
+@@ -778,4 +785,3 @@ build_pixel_shader(  rt64 "src/shaders/Im3DPS.hlsl")
  build_pixel_shader(  rt64 "src/shaders/PostProcessPS.hlsl")
  
  target_include_directories(rt64 PRIVATE ${CMAKE_BINARY_DIR}/src)
@@ -663,7 +663,7 @@ index 6255872..ad8f557 100644
              state->dpInterrupt();
          }
 diff --git a/src/hle/rt64_application.cpp b/src/hle/rt64_application.cpp
-index 839b243..9da87af 100644
+index 6c840e6..d212f34 100644
 --- a/src/hle/rt64_application.cpp
 +++ b/src/hle/rt64_application.cpp
 @@ -66,6 +66,19 @@ namespace RT64 {
@@ -1312,7 +1312,7 @@ index c29e4b2..7ab83ad 100644
 \ No newline at end of file
 +};
 diff --git a/src/hle/rt64_present_queue.cpp b/src/hle/rt64_present_queue.cpp
-index 2d6595a..50a2523 100644
+index 75dd714..725bc92 100644
 --- a/src/hle/rt64_present_queue.cpp
 +++ b/src/hle/rt64_present_queue.cpp
 @@ -2,6 +2,7 @@
@@ -1333,7 +1333,7 @@ index 2d6595a..50a2523 100644
  namespace RT64 {
      // PresentQueue
  
-@@ -419,6 +423,7 @@ namespace RT64 {
+@@ -442,6 +446,7 @@ namespace RT64 {
                  RenderCommandSemaphore *waitSemaphore = drawSemaphores[swapChainIndex].get();
                  presentTimestamp = Timer::current();
                  swapChainValid = ext.swapChain->present(swapChainIndex, &waitSemaphore, 1);
@@ -2193,7 +2193,7 @@ index 61bb3b1..01a84a2 100644
 \ No newline at end of file
 +};
 diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
-index 61f2ace..ad4e70c 100644
+index 30799fb..b529a78 100644
 --- a/src/hle/rt64_state.cpp
 +++ b/src/hle/rt64_state.cpp
 @@ -230,7 +230,7 @@ namespace RT64 {
@@ -2256,17 +2256,17 @@ index 61f2ace..ad4e70c 100644
      void State::fullSync() {
          landRAMCopies(false);
          flush();
-@@ -1229,7 +1255,8 @@ namespace RT64 {
- 
+@@ -1231,7 +1257,8 @@ namespace RT64 {
                      // Submit the shader to the cache so compilation can start right away.
                      // Ignore any calls that use fill type, as they're emulated without using a shader.
--                    if (callDesc.otherMode.cycleType() != G_CYC_FILL) {
+                     // A pipeline warm-up's draw is the game's no more than its shader is (warmUpPipelines()).
+-                    if ((callDesc.otherMode.cycleType() != G_CYC_FILL) && !extended.pipelineWarmUp) {
 +                    if (!ext.workloadQueue->ubershadersOnly.load(std::memory_order_relaxed) &&
-+                        (callDesc.otherMode.cycleType() != G_CYC_FILL)) {
++                        (callDesc.otherMode.cycleType() != G_CYC_FILL) && !extended.pipelineWarmUp) {
                          ext.rasterShaderCache->submit(shaderDesc);
                      }
  
-@@ -1304,6 +1331,9 @@ namespace RT64 {
+@@ -1306,6 +1333,9 @@ namespace RT64 {
                      const auto &colorImg = fbPair.colorImage;
                      const auto &depthImg = fbPair.depthImage;
                      colorHeight = fbPair.drawColorRect.bottom(true);
@@ -2276,7 +2276,7 @@ index 61f2ace..ad4e70c 100644
                      colorWriteWidth = (colorHeight > 1) ? colorImg.width : std::min(fbPair.drawColorRect.right(true), int32_t(colorImg.width));
                      depthWriteWidth = 0;
                      colorFb = &framebufferManager.get(colorImg.address, colorImg.siz, colorImg.width, colorHeight);
-@@ -1326,6 +1356,13 @@ namespace RT64 {
+@@ -1328,6 +1358,13 @@ namespace RT64 {
                          depthRowEnd = fbPair.drawDepthRect.bottom(true);
                      }
  
@@ -2290,7 +2290,7 @@ index 61f2ace..ad4e70c 100644
                      return true;
                  }
                  else {
-@@ -2908,6 +2945,9 @@ namespace RT64 {
+@@ -2950,6 +2987,9 @@ namespace RT64 {
      }
  
      uint8_t *State::fromRDRAM(uint32_t rdramAddress) const {
@@ -2300,7 +2300,7 @@ index 61f2ace..ad4e70c 100644
          return &RDRAM[rdramAddress];
      }
  
-@@ -2950,4 +2990,4 @@ namespace RT64 {
+@@ -2992,4 +3032,4 @@ namespace RT64 {
              break;
          }
      }
@@ -2308,7 +2308,7 @@ index 61f2ace..ad4e70c 100644
 \ No newline at end of file
 +};
 diff --git a/src/hle/rt64_state.h b/src/hle/rt64_state.h
-index 019e41d..b1182b4 100644
+index 551816c..49f2b5b 100644
 --- a/src/hle/rt64_state.h
 +++ b/src/hle/rt64_state.h
 @@ -38,6 +38,11 @@ namespace RT64 {
@@ -2332,7 +2332,7 @@ index 019e41d..b1182b4 100644
          uint64_t workloadId = 0;
          uint64_t presentId = 0;
 diff --git a/src/hle/rt64_vi.cpp b/src/hle/rt64_vi.cpp
-index a870166..8402934 100644
+index 05625cc..81a883b 100644
 --- a/src/hle/rt64_vi.cpp
 +++ b/src/hle/rt64_vi.cpp
 @@ -16,10 +16,33 @@ namespace RT64 {
@@ -2382,7 +2382,7 @@ index a870166..8402934 100644
              return size;
          } else {
 diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
-index b225845..43694b8 100644
+index 1e6b70d..c3d36f2 100644
 --- a/src/hle/rt64_workload_queue.cpp
 +++ b/src/hle/rt64_workload_queue.cpp
 @@ -2,6 +2,11 @@
@@ -2421,7 +2421,7 @@ index b225845..43694b8 100644
              writeCursor = nextWriteCursor;
          }
  
-@@ -861,7 +866,54 @@ namespace RT64 {
+@@ -862,7 +867,54 @@ namespace RT64 {
              // Update the GPU profiler with the results from the timestamps of the frame.
              queryPool->queryResults();
              const uint64_t *frameTimestamps = queryPool->getResults();
@@ -2477,7 +2477,7 @@ index b225845..43694b8 100644
  
              // Indicate to the texture cache it's safe to delete the textures if no locks are active.
              ext.textureCache->decrementLock();
-@@ -879,8 +931,13 @@ namespace RT64 {
+@@ -880,8 +932,13 @@ namespace RT64 {
      }
  
      void WorkloadQueue::threadAdvanceBarrier() {
@@ -2493,7 +2493,7 @@ index b225845..43694b8 100644
      }
  
      void WorkloadQueue::threadAdvanceWorkloadId(uint64_t newWorkloadId) {
-@@ -1241,4 +1298,4 @@ namespace RT64 {
+@@ -1274,4 +1331,4 @@ namespace RT64 {
              }
          }
      }
@@ -2501,7 +2501,7 @@ index b225845..43694b8 100644
 \ No newline at end of file
 +};
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index dfaf629..ca61cb5 100644
+index 3f149e6..6dee0bb 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
 @@ -4,7 +4,11 @@
@@ -2897,7 +2897,7 @@ index dfaf629..ca61cb5 100644
              const InstanceDrawCall &drawCall = instanceDrawCallVector[i];
              switch (drawCall.type) {
              case InstanceDrawCall::Type::IndexedTriangles: 
-@@ -598,9 +959,22 @@ namespace RT64 {
+@@ -599,9 +960,22 @@ namespace RT64 {
                      switchToDepthWrite();
                  }
  
@@ -2923,7 +2923,7 @@ index dfaf629..ca61cb5 100644
                  }
  
                  if (previousPipeline != triangles.pipeline) {
-@@ -688,6 +1062,7 @@ namespace RT64 {
+@@ -701,6 +1075,7 @@ namespace RT64 {
              }
          }
  
@@ -2931,7 +2931,7 @@ index dfaf629..ca61cb5 100644
          // Mark targets for resolve.
          if (fbStorage->colorTarget != nullptr) {
              fbStorage->colorTarget->markForResolve();
-@@ -698,6 +1073,51 @@ namespace RT64 {
+@@ -711,6 +1086,51 @@ namespace RT64 {
          }
      }
  
@@ -2983,7 +2983,7 @@ index dfaf629..ca61cb5 100644
      void FramebufferRenderer::updateMultisampling() {
          dummyColorTargetView.reset();
          dummyDepthTargetView.reset();
-@@ -1411,6 +1831,11 @@ namespace RT64 {
+@@ -1424,6 +1844,11 @@ namespace RT64 {
          postBlendDitherNoiseAddPipeline = rasterShaderUber->postBlendDitherNoiseAddPipeline.get();
          postBlendDitherNoiseSubPipeline = rasterShaderUber->postBlendDitherNoiseSubPipeline.get();
          postBlendDitherNoiseSubNegativePipeline = rasterShaderUber->postBlendDitherNoiseSubNegativePipeline.get();
@@ -2995,7 +2995,7 @@ index dfaf629..ca61cb5 100644
  
          // Make a new render target draw call.
          RenderTargetDrawCall &targetDrawCall = framebuffer.renderTargetDrawCall;
-@@ -1545,7 +1970,7 @@ namespace RT64 {
+@@ -1558,7 +1983,7 @@ namespace RT64 {
                  // The call's scissor spans the whole width of the framebuffer pair scissor. Custom origin must not be in use to be able to use the stretched viewport.
                  const auto &viewport = drawData.rspViewports[proj.transformsIndex];
                  FixedRect intersectionRect = proj.scissorRect.intersection(viewport.rect(viewportClipRatios));
@@ -3005,7 +3005,7 @@ index dfaf629..ca61cb5 100644
                  bool useWideViewport = (viewportOrigin == G_EX_ORIGIN_NONE) && coversWholeWidth && horizontalRatio;
                  if (useWideViewport) {
 diff --git a/src/render/rt64_framebuffer_renderer.h b/src/render/rt64_framebuffer_renderer.h
-index 9ec3b6a..70a4d80 100644
+index 4efd5c4..e9ac63e 100644
 --- a/src/render/rt64_framebuffer_renderer.h
 +++ b/src/render/rt64_framebuffer_renderer.h
 @@ -87,6 +87,46 @@ namespace RT64 {
@@ -3069,7 +3069,7 @@ index e842dcc..157eec5 100644
                      adjustAspectRatio = (viewportOrigin == G_EX_ORIGIN_NONE) && coversWholeWidth && horizontalRatio;
                  }
 diff --git a/src/render/rt64_raster_shader.cpp b/src/render/rt64_raster_shader.cpp
-index 219b340..475c052 100644
+index 5c40345..6049e78 100644
 --- a/src/render/rt64_raster_shader.cpp
 +++ b/src/render/rt64_raster_shader.cpp
 @@ -20,6 +20,13 @@
@@ -3131,7 +3131,7 @@ index 219b340..475c052 100644
  
  #include "rt64_descriptor_sets.h"
  #include "rt64_render_target.h"
-@@ -723,6 +752,139 @@ namespace RT64 {
+@@ -767,6 +796,139 @@ namespace RT64 {
  
          postBlendDesc.pixelShader = postBlendSubNegativePixelShader.get();
          postBlendDitherNoiseSubNegativePipeline = device->createGraphicsPipeline(postBlendDesc);
@@ -3272,10 +3272,10 @@ index 219b340..475c052 100644
  
      RasterShaderUber::~RasterShaderUber() {
 diff --git a/src/render/rt64_raster_shader.h b/src/render/rt64_raster_shader.h
-index f7a5889..3e2ed91 100644
+index 3200b7d..446d36e 100644
 --- a/src/render/rt64_raster_shader.h
 +++ b/src/render/rt64_raster_shader.h
-@@ -103,6 +103,12 @@ namespace RT64 {
+@@ -117,6 +117,12 @@ namespace RT64 {
          std::unique_ptr<RenderPipeline> postBlendDitherNoiseAddPipeline;
          std::unique_ptr<RenderPipeline> postBlendDitherNoiseSubPipeline;
          std::unique_ptr<RenderPipeline> postBlendDitherNoiseSubNegativePipeline;
@@ -3289,7 +3289,7 @@ index f7a5889..3e2ed91 100644
          std::condition_variable firstPipelineCondition;
          bool pipelinesCreated = false;
 diff --git a/src/render/rt64_raster_shader_cache.cpp b/src/render/rt64_raster_shader_cache.cpp
-index e9a70c7..7fcbb3d 100644
+index 42bf31e..04c7edd 100644
 --- a/src/render/rt64_raster_shader_cache.cpp
 +++ b/src/render/rt64_raster_shader_cache.cpp
 @@ -4,6 +4,8 @@
@@ -3301,7 +3301,7 @@ index e9a70c7..7fcbb3d 100644
  #include "common/rt64_thread.h"
  
  #if defined(__EMSCRIPTEN__)
-@@ -88,6 +90,7 @@ namespace RT64 {
+@@ -89,6 +91,7 @@ namespace RT64 {
              {
                  std::unique_lock<std::mutex> queueLock(shaderCache->descQueueMutex);
                  shaderCache->descQueueActiveCount--;
@@ -3309,7 +3309,7 @@ index e9a70c7..7fcbb3d 100644
                  shaderCache->descQueueChanged.wait(queueLock, [this]() {
                      return !threadRunning || !shaderCache->descQueue.empty();
                  });
-@@ -629,9 +632,30 @@ namespace RT64 {
+@@ -630,9 +633,30 @@ namespace RT64 {
              prebuildState[indexIt->second] = PrebuildWanted;
              prebuildWanted.emplace_back(indexIt->second);
          }
@@ -3340,7 +3340,7 @@ index e9a70c7..7fcbb3d 100644
          // A browser that builds no shaders during play (Firefox) still learns the ones the list missed, and builds them
          // with their section on the next visit.
          if (!specializedShaders && !recordShaders && (prebuildCount == 0)) {
-@@ -649,6 +673,15 @@ namespace RT64 {
+@@ -650,6 +674,15 @@ namespace RT64 {
              }
  
              found = true;
@@ -3356,7 +3356,7 @@ index e9a70c7..7fcbb3d 100644
          }
  
          // The spec constants' order: other mode L and H, color combiner L and H, flags.
-@@ -677,16 +710,10 @@ namespace RT64 {
+@@ -678,16 +711,10 @@ namespace RT64 {
      }
      
      void RasterShaderCache::waitForAll() {
@@ -3377,7 +3377,7 @@ index e9a70c7..7fcbb3d 100644
      }
  
      void RasterShaderCache::destroyAll() {
-@@ -733,4 +760,4 @@ namespace RT64 {
+@@ -734,4 +761,4 @@ namespace RT64 {
          std::unique_lock<std::mutex> lock(GPUShadersMutex);
          return GPUShaders.size();
      }
