@@ -63,8 +63,8 @@ saves are kept in the browser's IndexedDB for that origin.
 ## The shaders
 
 The page builds the game's shaders from `src/rt64_shaders.txt` (`RT64_PREBUILT_SHADER_LIST`, which `dkr.patch` sets
-in `CMakeLists.txt`), in sections, one a planet. In Chrome they are built behind the game from its first frame, and the
-game waits only when a frame wants 4 or more that aren't built yet, under a small "Preparing graphics" indicator in a
+in `CMakeLists.txt`), in sections, one a planet. In Chrome they are built in the background, and the game
+waits only when a frame wants 4 or more that aren't built yet, under a small "Preparing graphics" indicator in a
 corner; Chrome keeps them for the visits after. Firefox builds a pipeline in line with the rest of its GPU work, so
 there the game waits instead: on its first frame for the list's boot, and for a planet's section when a frame first
 wants 4 of its shaders. Without them RT64 would draw with its ubershader meanwhile, which integrated graphics can't
@@ -91,10 +91,14 @@ How the page plays in Chrome and Firefox, run by run, is recorded in N64Recomp-b
 [plays.jsonl](https://github.com/amazingalek/N64Recomp-browser/blob/main/plays.jsonl) and its
 [games table](https://github.com/amazingalek/N64Recomp-browser#games).
 
-The page presents the game's own frames, not RT64's: the Graphics menu's Framerate is Original by default, as in the
-desktop build, so RT64 presents each frame the game draws and adds none in between, and the game's own Frame Rate
-setting (Visuals) is Original too, 30 frames a second dropping to 20 when a frame runs long, as on the N64. On the page
-every frame does: the game sends two display lists a frame, and each takes RT64 10-12 ms with the exact copy, about 6 ms
+On the page the Graphics menu's Framerate is Display by default, where the desktop build's is Original:
+`patches/web/dkr.patch` sets `rr_default` with Emscripten and moves a page's settings saved before graphics config
+version 6 to Display once, so RT64 interpolates between the game's frames to the display's rate. Before
+N64Recomp-browser v0.54.0 (this pins v0.50.0) it interpolates only now and then in play: the game's shadows' display
+list before each frame's reads as a frame of its own, and the game's frames take 2 and 3 VIs, which rt64 179adb8
+handles. The game's own Frame Rate setting (Visuals) stays Original, 30 frames a second dropping to 20 when a
+frame runs long, as on the N64. On the page every frame does:
+the game sends two display lists a frame, and each takes RT64 10-12 ms with the exact copy, about 6 ms
 of it waiting for the readback (4-5 ms with the late copy, with which a test build held 30). The game can't take the
 late copy (below), so it plays at 20 in every browser, the GPU about a third busy.
 
