@@ -855,10 +855,54 @@ index cb370f8..b24f621 100644
              if (old_context != recompui::ContextId::null()) {
                  old_context.open();
 diff --git a/src/ui/ui_launcher.cpp b/src/ui/ui_launcher.cpp
-index 39302c2..92fa399 100644
+index 39302c2..e2dceae 100644
 --- a/src/ui/ui_launcher.cpp
 +++ b/src/ui/ui_launcher.cpp
-@@ -160,7 +160,7 @@ void select_rom() {
+@@ -12,6 +12,12 @@
+ #include <chrono>
+ #include <fstream>
+ #include <iterator>
++#ifdef __EMSCRIPTEN__
++#include <algorithm>
++#include <fcntl.h>
++#include <sys/stat.h>
++#include <unistd.h>
++#endif
+ 
+ static std::string version_string;
+ #include "jfg/jfg_update_check.h"
+@@ -54,9 +60,30 @@ static const LauncherPageInfo& launcher_page_info() {
+ 
+ // Images the launcher shows, registered under the names its RML uses ("/jfg_vibintoast" -> "jfg_vibintoast").
+ static bool queue_launcher_image(const char* name, const char* file) {
++#ifdef __EMSCRIPTEN__
++    // A page's files are in the page's thread's file system, and every read from another thread waits for that
++    // thread: an istreambuf_iterator reads the 4 MB VibinToast image a KB at a time, thousands of round trips as the
++    // launcher starts. So it is read in 4 MB pieces.
++    const int in = open(dino::runtime::get_asset_path(file).c_str(), O_RDONLY);
++    struct stat st;
++    if (in < 0 || fstat(in, &st) != 0) {
++        if (in >= 0) close(in);
++        return false;
++    }
++    std::vector<char> bytes(st.st_size);
++    size_t done = 0;
++    while (done < bytes.size()) {
++        const ssize_t got = read(in, bytes.data() + done, std::min<size_t>(bytes.size() - done, 4 << 20));
++        if (got <= 0) break;
++        done += got;
++    }
++    close(in);
++    bytes.resize(done);
++#else
+     std::ifstream in(dino::runtime::get_asset_path(file), std::ios::binary);
+     if (!in) return false;
+     std::vector<char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
++#endif
+     if (bytes.empty()) return false;
+     recompui::queue_image_from_bytes_file(name, bytes);
+     return true;
+@@ -160,7 +187,7 @@ void select_rom() {
  
  void start_game() {
      jfg_launcher_commit_settings(); // JFG PORT: settings changed on the launcher's pages
@@ -867,7 +911,7 @@ index 39302c2..92fa399 100644
      recompui::hide_all_contexts();
  }
  
-@@ -186,6 +186,33 @@ public:
+@@ -186,6 +213,33 @@ public:
          queue_launcher_image("jfg_scanlines", "jfg_launcher/scanlines.png");
          logo_available = queue_launcher_image("jfg_logo", "jfg_launcher/logo.png");
  		launcher_context = recompui::create_context(dino::runtime::get_asset_path("launcher.rml"));
@@ -901,7 +945,7 @@ index 39302c2..92fa399 100644
      }
      void register_events(recompui::UiEventListenerInstancer& listener) override {
          recompui::register_event(listener, "select_rom",
-@@ -312,7 +339,10 @@ public:
+@@ -312,7 +366,10 @@ public:
              model_handle.DirtyVariable("update_percent");
              model_handle.DirtyVariable("update_status");
          });
