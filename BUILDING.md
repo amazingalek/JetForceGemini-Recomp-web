@@ -87,28 +87,16 @@ then put back the list's header, which says what was played.
 
 ## How it plays
 
-A local build of the page (N64Recomp-browser v0.49.0), played by `tools/play_plan.json` (the first room of every
-planet, 160 s) from a fresh profile each, headless Chrome 155 and Firefox 158, RTX 2070, a quiet host, at 1256x645 and
-at 3840x2000 uncapped:
+How the page plays in Chrome and Firefox, run by run, is recorded in N64Recomp-browser's
+[plays.jsonl](https://github.com/amazingalek/N64Recomp-browser/blob/main/plays.jsonl) and its
+[games table](https://github.com/amazingalek/N64Recomp-browser#games).
 
-```
-                      presents/s     shader waits     sound frames short   WebGPU errors
-Chrome   1256x645        19.8         none                12,950               0
-Chrome   3840x2000       19.6         none                14,411               0
-Firefox  1256x645        20.8         8.9 s in all       255,491               0
-Firefox  3840x2000       21.2         9.4 s in all       273,112               0
-```
-
-Firefox waits 2.9-3.2 s for the boot's 35 shaders, 3.1-3.3 s once for a planet's 72, and under
-1.1 s for each of the others; its sound is short in and just after those waits, and nowhere else. Chrome builds
-the list behind the game and never waits.
-
-Those are the game's own frames, not RT64's: the Graphics menu's Framerate is Original by default, as in the desktop
-build, so RT64 presents each frame the game draws and adds none in between, and the game's own Frame Rate setting
-(Visuals) is Original too, 30 frames a second dropping to 20 when a frame runs long, as on the N64. On the page every
-frame does: the game sends two display lists a frame, and each takes RT64 10-12 ms with the exact copy, about 6 ms of
-it waiting for the readback (4-5 ms with the late copy, with which a test build held 30). The game can't take the late
-copy (below), so it plays at 20 in every browser, the GPU about a third busy.
+The page presents the game's own frames, not RT64's: the Graphics menu's Framerate is Original by default, as in the
+desktop build, so RT64 presents each frame the game draws and adds none in between, and the game's own Frame Rate
+setting (Visuals) is Original too, 30 frames a second dropping to 20 when a frame runs long, as on the N64. On the page
+every frame does: the game sends two display lists a frame, and each takes RT64 10-12 ms with the exact copy, about 6 ms
+of it waiting for the readback (4-5 ms with the late copy, with which a test build held 30). The game can't take the
+late copy (below), so it plays at 20 in every browser, the GPU about a third busy.
 
 ## Render to RAM
 
