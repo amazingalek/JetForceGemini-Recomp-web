@@ -73,7 +73,8 @@ rest on the next visit.
 
 The list is recorded by code, not by hand: `tools/shader_plan.json` (written by `tools/make_plans.py`, whose docstring
 says how it plays) is a plan for N64Recomp-browser's `tools/record_shaders.mjs`, which boots the page, starts a new
-game and, for each section, warps to every room of one planet with `tools/shader_survey.js`, looking around in each.
+game and, for each section, warps to every room of one planet with `tools/shader_survey.js`, looking around in each,
+and in a load of its own to the planet's bosses, cutscene or race that draw shaders its rooms don't, fighting there.
 The warp is the one the desktop build's F10 toolbar has (`src/jfg/jfg_debug_menu.cpp`), which the page's build
 exports to the survey as `jfg_web_warp`. To record again, after `tools/build_web.sh`:
 

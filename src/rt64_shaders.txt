@@ -10,8 +10,11 @@
 # each section from a fresh load of the page: the boot is the launcher, the logos, the title, the file select, the
 # name keyboard, the story intro and the character select; each section after it is one planet, every room of its
 # regions reached by tools/shader_survey.js (make_plans.py lists them), the camera turned and the character walked
-# a few steps in each, Goldwood's with its opening. Not played: enemies fought, weapons fired, bosses, cutscenes,
-# the minigames, multiplayer and the rooms that belong to no planet.
+# a few steps in each, Goldwood's with its opening; and, in a load of their own, the places further in that draw
+# shaders a planet's rooms don't: Tawfret's swamp boss, Sekhmet's boss, Ichor's slug boss, the race against Mizar in
+# Mizar's Palace's and the fight with Mizar in Asteroid's, every weapon given and enemies fought for 25-50 s, and the
+# Spawn Attack cutscene in Spawnship's. Not played: the other bosses and cutscenes, the other minigames, multiplayer
+# and the other rooms that belong to no planet.
 00504340 00080c0f fcffffff fffe793c 08000008
 0f0a4000 00000ccf fc11fe23 fffffdfe 04cb540b
 00504240 00000c0f fc5616ac 112cfe7f 008a000b
@@ -255,6 +258,7 @@ c8104a50 00182c0f fc309604 5ffefff8 088a0008
 005041c8 00080c0f fc41fe83 fffff7fb 08000008
 c8104dd8 00182c0f fc1217ff fffffe38 0ccb5408
 c8104a50 00182c0f fc309604 5ffefff8 0ccb5408
+00504240 00080c0f fc31b663 ff6fffff 08000000
 section walkway
 0f0a4000 00080c0f fc31b663 ff6fffff 08000004
 0f0a4000 00082c0f fc121624 ff2fffff 088a000c
@@ -340,6 +344,7 @@ c8104240 00182c0f fc121603 fffffff8 0ccb540c
 c8112230 00180c0f fc41ffff fffff638 0800000c
 c81049d8 00182c0f fc121603 fffffff8 088a0008
 0c192230 00192ccf fc26a004 1ffc93f8 199f100c
+00104a50 00182c0f fc309604 5f12ffff 088a0008
 section rithessa
 0f0a4000 00080c0f fc31b663 ff6fffff 08000004
 0f0a4000 00082c0f fc121624 ff2fffff 088a000c
@@ -481,6 +486,7 @@ c8113278 00182c0f fc1196ac f0fffe38 0ccb5408
 00504340 00000c0f fcffffff fffdf6fb 0800000b
 c8104a50 00182c0f fc309604 5ffefff8 088a0008
 c8112230 00180c0f fc41ffff fffff638 0800000c
+00552078 00082c0f fc121624 ff2fffff 088a000c
 section spawnship
 0f0a4000 00080c0f fc31b663 ff6fffff 08000004
 0f0a4000 00080c0f fc31b663 ff6fffff 08000000
@@ -522,6 +528,7 @@ c8104e50 00182c0f fc1217ff fffffe38 0ccb540c
 cb024000 00182c0f fc121603 fffffff8 0bba440c
 c8104240 00182c0f fc121603 fffffff8 0ccb540c
 00552230 00082c0f fc121624 ff2fffff 0ccb540c
+0c192078 00192ccf fc26a004 1ffc93f8 1bbe440c
 section waterruin
 0f0a4000 00080c0f fc31b663 ff6fffff 08000000
 0f0a4000 00080c0f fc31b663 ff6fffff 08000004
@@ -706,6 +713,8 @@ c81049d8 00182c0f fc121603 fffffff8 099b100c
 001049d8 00182c0f fc121803 ff0fffff 0bba440c
 c8112230 00182c0f fc262a04 1f0c93ff 0ccf540c
 03024000 00100c0f fc11fee5 fffffc3e 0003540b
+00504240 00002c0f fc119623 ff2fffff 088a000b
+00504240 00000c0f fc119623 ff2fffff 008a000b
 section asteroid
 0f0a4000 00080c0f fc31b663 ff6fffff 08000004
 0f0a4000 00082c0f fc121624 ff2fffff 088a000c
@@ -741,3 +750,6 @@ c8104a50 00182c0f fc309604 5ffefff8 088a0008
 005049d8 00082c0f fc309661 552eff7f 0ccb5408
 c8104b50 00182c0f fc3097ff 5ffefe38 0ccb5408
 00504340 00000c0f fcffffff fffdf6fb 0800000b
+c8104340 00182c0f fc1196ac f0fffe38 0ccb5408
+c8104340 00182c0f fc262a60 150c937f 0ccf5408
+c8104340 00182c0f fc3097ff 5ffefe38 0ccb5408

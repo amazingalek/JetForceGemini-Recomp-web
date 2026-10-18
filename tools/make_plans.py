@@ -8,7 +8,10 @@ whose opening is Goldwood's, and tools/shader_survey.js warps to each room of a 
 (a warp straight from the character select leaves the screen black); in each the camera turns (the C buttons, the
 arrow keys) and the character walks (W) for a few seconds. A section a planet: every room of the planet's regions (the
 region is byte 0x102 of a level's header, src/jfg/jfg_debug_menu.cpp's region_names), the cutscenes and test rooms
-that belong to none left out. Run it again after changing PLANETS."""
+that belong to none left out. Places that draw shaders a planet's rooms don't (FIGHTS: bosses, a cutscene, a race) are
+played again in a load of their own under their planet's section name, every weapon given (shader_survey.js's arm()),
+enemies fought for about 25 s a round: out and back by as much, firing as it goes (Z), aiming (R), the camera turned,
+jumping and changing weapon. Run it again after changing PLANETS or FIGHTS."""
 import json, os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -34,6 +37,17 @@ PLANETS = [
     ("spacestation", JUNO, [276, 9, 104, 264]),
     ("mizar", JUNO, [232, 192, 201, 213, 299, 300, 301, 222, 223, 234, 311, 243, 315, 316, 317]),
     ("asteroid", JUNO, [332, 28, 220, 224, 225, 226, 337, 396]),
+]
+
+# Places further in, by the game's level numbers, where a longer play draws shaders the rooms above don't: (section,
+# [(level, character, seconds waited after the warp, rounds of FIGHT)]), each section's in one load, in this order.
+FIGHTS = [
+    ("tawfret", [(193, JUNO, 12, 0), (194, JUNO, 5, 2)]),  # Swamp Boss Intro, then its fight (Tawfret - Castle)
+    ("sekhmet", [(162, JUNO, 6, 1)]),  # AlphaSewer Boss, the battle cruiser's
+    ("ichor", [(371, VELA, 10, 0), (372, VELA, 5, 2)]),  # SlugBoss Play Sequence, then its fight (Military Base)
+    ("spawnship", [(326, JUNO, 12, 0)]),  # Spawn Attack, a cutscene of no planet's, on into Control Room (323)
+    ("mizar", [(268, JUNO, 5, 1)]),  # Mizar Racer, the race against Mizar
+    ("asteroid", [(386, JUNO, 5, 2)]),  # Mizar Fight Play
 ]
 
 def key(name, code, ms):
@@ -64,6 +78,41 @@ def section_steps(name, character, rooms):
     enter = ENTER if name == "goldwood" else [["keep", False], *ENTER, ["keep", True]]
     return enter + [s for level in rooms for s in visit(level, character)]
 
+KEY_W, KEY_A, KEY_S, KEY_D = ("KeyW", "w", 87), ("KeyA", "a", 65), ("KeyS", "s", 83), ("KeyD", "d", 68)
+KEY_Z, KEY_R, KEY_A_BUTTON = ("KeyQ", "q", 81), ("KeyR", "r", 82), ("Space", " ", 32)
+LEFT, RIGHT = ("ArrowLeft", "ArrowLeft", 37), ("ArrowRight", "ArrowRight", 39)
+C_UP, C_DOWN = ("ArrowUp", "ArrowUp", 38), ("ArrowDown", "ArrowDown", 40)
+
+def hold(k, ms):
+    return ["hold", *k, ms]
+
+def held(k, *steps):
+    return [["down", *k], *steps, ["up", *k]]
+
+def fire(ms):  # Z pressed every 300 ms for ms
+    return ["pressUntil", *KEY_Z, 120, 300, "false", ms]
+
+# A round about a spot: out and back by as much, firing as it goes, the camera turned, a jump, aiming.
+FIGHT = [*held(KEY_W, fire(1800)), hold(KEY_A_BUTTON, 150), ["wait", 600],
+         hold(LEFT, 900), *held(KEY_R, fire(2000)), hold(RIGHT, 900),
+         *held(KEY_S, fire(1800)), hold(C_UP, 200), ["wait", 800], hold(KEY_A_BUTTON, 150), ["wait", 600],
+         *held(KEY_D, fire(1500)), *held(KEY_A, fire(1500)),
+         hold(RIGHT, 900), fire(2500), hold(LEFT, 900), hold(C_DOWN, 300), ["wait", 500],
+         hold(KEY_A_BUTTON, 150), ["wait", 600], fire(2500)]
+
+def fight_steps(places):
+    steps = [["keep", False], *ENTER, ["eval", "arm()"], ["keep", True]]
+    for level, character, wait, rounds in places:
+        steps += [["eval", f"warp({level}, {character})"], ["wait", wait * 1000], ["eval", "arm()"], *FIGHT * rounds]
+    return steps
+
+def sections():
+    fights = dict(FIGHTS)
+    for name, character, rooms in PLANETS:
+        yield {"name": name, "steps": section_steps(name, character, rooms)}
+        if name in fights:
+            yield {"name": name, "steps": fight_steps(fights[name])}
+
 shader_plan = {
     # The list's header (record_shaders.mjs writes it at the top of src/rt64_shaders.txt).
     "header": [
@@ -79,12 +128,14 @@ shader_plan = {
         "each section from a fresh load of the page: the boot is the launcher, the logos, the title, the file select, the",
         "name keyboard, the story intro and the character select; each section after it is one planet, every room of its",
         "regions reached by tools/shader_survey.js (make_plans.py lists them), the camera turned and the character walked",
-        "a few steps in each, Goldwood's with its opening. Not played: enemies fought, weapons fired, bosses, cutscenes,",
-        "the minigames, multiplayer and the rooms that belong to no planet."],
+        "a few steps in each, Goldwood's with its opening; and, in a load of their own, the places further in that draw",
+        "shaders a planet's rooms don't: Tawfret's swamp boss, Sekhmet's boss, Ichor's slug boss, the race against Mizar in",
+        "Mizar's Palace's and the fight with Mizar in Asteroid's, every weapon given and enemies fought for 25-50 s, and the",
+        "Spawn Attack cutscene in Spawnship's. Not played: the other bosses and cutscenes, the other minigames, multiplayer",
+        "and the other rooms that belong to no planet."],
     "page": "JetForceGeminiRecompiled.html",
     "load": LOAD, "setup": SETUP, "start": START,
-    "sections": [{"name": name, "steps": section_steps(name, character, rooms)}
-                 for name, character, rooms in PLANETS],
+    "sections": list(sections()),
 }
 play_plan = {
     "header": [
