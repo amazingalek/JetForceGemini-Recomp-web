@@ -1,7 +1,9 @@
 {
  "header": [
   "Jet Force Gemini's play plan for N64Recomp-browser's tools/play_page.mjs, written by tools/make_plans.py: the boot",
-  "as the shader plan's, then the first room of every planet in turn."
+  "as the shader plan's, then the first room of every planet in turn. Its waits and holds there are on the game's own",
+  "clock, Time (the 60ths it adds each frame's length to), so every browser plays as much of each room whatever frames",
+  "it gives the game; the last step reads where the character is (the player list's first object)."
  ],
  "page": "JetForceGeminiRecompiled.html",
  "load": [
@@ -174,6 +176,11 @@
   [
    "wait",
    1500
+  ],
+  [
+   "clock",
+   "n64r(0x800FD748)",
+   60
   ],
   [
    "eval",
@@ -669,6 +676,10 @@
   [
    "wait",
    1000
+  ],
+  [
+   "eval",
+   "(() => { const f = (a) => new Float32Array(new Uint32Array([n64r(a)]).buffer)[0]; const o = n64r(n64r(0x800F2D0C)); return [0x0C, 0x10, 0x14].map((i) => Math.round(f(o + i))); })()"
   ]
  ]
 }

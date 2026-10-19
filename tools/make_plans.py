@@ -55,6 +55,11 @@ def key(name, code, ms):
 
 LOOK = [key("ArrowLeft", 37, 1500), ["hold", "KeyW", "w", 87, 1500], key("ArrowRight", 39, 1500), ["wait", 1000]]
 
+# The game's own time for the play's waits and holds, and where the player is at its end.
+CLOCK = ["clock", "n64r(0x800FD748)", 60]
+WHERE = ["eval", "(() => { const f = (a) => new Float32Array(new Uint32Array([n64r(a)]).buffer)[0]; const o = n64r(n64r(0x800F2D0C)); "
+                 "return [0x0C, 0x10, 0x14].map((i) => Math.round(f(o + i))); })()"]
+
 def visit(level, character):
     return [["eval", f"warp({level}, {character})"], ["wait", 3500], *LOOK]
 
@@ -140,10 +145,12 @@ shader_plan = {
 play_plan = {
     "header": [
         "Jet Force Gemini's play plan for N64Recomp-browser's tools/play_page.mjs, written by tools/make_plans.py: the boot",
-        "as the shader plan's, then the first room of every planet in turn."],
+        "as the shader plan's, then the first room of every planet in turn. Its waits and holds there are on the game's own",
+        "clock, Time (the 60ths it adds each frame's length to), so every browser plays as much of each room whatever frames",
+        "it gives the game; the last step reads where the character is (the player list's first object)."],
     "page": "JetForceGeminiRecompiled.html",
     "load": LOAD, "setup": SETUP, "start": START,
-    "play": ENTER + [s for _, character, rooms in PLANETS for s in visit(rooms[0], character)],
+    "play": ENTER + [CLOCK, *[s for _, character, rooms in PLANETS for s in visit(rooms[0], character)], WHERE],
 }
 for name, plan in (("shader_plan.json", shader_plan), ("play_plan.json", play_plan)):
     with open(os.path.join(HERE, name), "w", newline="\n") as f:
