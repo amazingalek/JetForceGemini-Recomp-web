@@ -663,7 +663,7 @@ index 6255872..ad8f557 100644
              state->dpInterrupt();
          }
 diff --git a/src/hle/rt64_application.cpp b/src/hle/rt64_application.cpp
-index 28a6308..af61453 100644
+index ae2c936..a9f4efa 100644
 --- a/src/hle/rt64_application.cpp
 +++ b/src/hle/rt64_application.cpp
 @@ -66,6 +66,19 @@ namespace RT64 {
@@ -1312,7 +1312,7 @@ index c29e4b2..7ab83ad 100644
 \ No newline at end of file
 +};
 diff --git a/src/hle/rt64_present_queue.cpp b/src/hle/rt64_present_queue.cpp
-index 98446c5..a1ad524 100644
+index 0369db4..6d5725b 100644
 --- a/src/hle/rt64_present_queue.cpp
 +++ b/src/hle/rt64_present_queue.cpp
 @@ -2,6 +2,7 @@
@@ -3289,7 +3289,7 @@ index c17d089..57d5b1c 100644
          std::condition_variable firstPipelineCondition;
          bool pipelinesCreated = false;
 diff --git a/src/render/rt64_raster_shader_cache.cpp b/src/render/rt64_raster_shader_cache.cpp
-index e6920d8..1fb4e51 100644
+index 378cf0c..b8ed387 100644
 --- a/src/render/rt64_raster_shader_cache.cpp
 +++ b/src/render/rt64_raster_shader_cache.cpp
 @@ -4,6 +4,8 @@
@@ -3309,7 +3309,7 @@ index e6920d8..1fb4e51 100644
                  shaderCache->descQueueChanged.wait(queueLock, [this]() {
                      return !threadRunning || !shaderCache->descQueue.empty();
                  });
-@@ -628,9 +631,30 @@ namespace RT64 {
+@@ -631,9 +634,30 @@ namespace RT64 {
              prebuildState[indexIt->second] = PrebuildWanted;
              prebuildWanted.emplace_back(indexIt->second);
          }
@@ -3337,10 +3337,10 @@ index e6920d8..1fb4e51 100644
 +            return;
 +        }
 +
-         // A browser that builds no shaders during play (Firefox) still learns the ones the list missed, and builds them
-         // with their section on the next visit.
+         // A browser that builds no shaders behind the game (Firefox) still learns the ones the list missed, builds them
+         // before the next frame (buildMissed()), and with their section on the next visit.
          if (!specializedShaders && !recordShaders && (prebuildCount == 0)) {
-@@ -648,6 +672,15 @@ namespace RT64 {
+@@ -651,6 +675,15 @@ namespace RT64 {
              }
  
              found = true;
@@ -3356,9 +3356,9 @@ index e6920d8..1fb4e51 100644
          }
  
          // The spec constants' order: other mode L and H, color combiner L and H, flags.
-@@ -676,16 +709,10 @@ namespace RT64 {
+@@ -721,16 +754,10 @@ namespace RT64 {
      }
-     
+ 
      void RasterShaderCache::waitForAll() {
 -        {
 -            std::unique_lock<std::mutex> queueLock(descQueueMutex);
@@ -3377,7 +3377,7 @@ index e6920d8..1fb4e51 100644
      }
  
      void RasterShaderCache::destroyAll() {
-@@ -732,4 +759,4 @@ namespace RT64 {
+@@ -777,4 +804,4 @@ namespace RT64 {
          std::unique_lock<std::mutex> lock(GPUShadersMutex);
          return GPUShaders.size();
      }
@@ -3385,7 +3385,7 @@ index e6920d8..1fb4e51 100644
 \ No newline at end of file
 +};
 diff --git a/src/render/rt64_raster_shader_cache.h b/src/render/rt64_raster_shader_cache.h
-index bdf6569..c9cb561 100644
+index 50cb454..c905fd6 100644
 --- a/src/render/rt64_raster_shader_cache.h
 +++ b/src/render/rt64_raster_shader_cache.h
 @@ -49,6 +49,8 @@ namespace RT64 {
@@ -3397,7 +3397,7 @@ index bdf6569..c9cb561 100644
          uint32_t threadCount;
          uint32_t ubershaderThreadCount;
          RenderShaderFormat shaderFormat;
-@@ -96,6 +98,7 @@ namespace RT64 {
+@@ -100,6 +102,7 @@ namespace RT64 {
          RasterShaderCache(uint32_t threadCount, uint32_t ubershaderThreadCount);
          ~RasterShaderCache();
          void setup(RenderDevice *device, RenderShaderFormat shaderFormat, const ShaderLibrary *shaderLibrary, const RenderMultisampling &multisampling);
@@ -3405,7 +3405,7 @@ index bdf6569..c9cb561 100644
          void submit(const ShaderDescription &desc);
          void waitForAll();
          void startPrebuild();
-@@ -111,4 +114,4 @@ namespace RT64 {
+@@ -116,4 +119,4 @@ namespace RT64 {
          RasterShaderUber *getGPUShaderUber() const;
          uint32_t shaderCount();
      };
