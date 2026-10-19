@@ -52,7 +52,8 @@ tools/build_web.sh path/to/baserom.us.z64
 
 Run again after a pull, without the ROM: each step skips what is done or redoes only what changed. `WEB_CMAKE_ARGS`
 goes to the configure (`-DN64RECOMP_BROWSER_FAST_LINK=ON` for a quick link while trying something, never for a page
-people play).
+people play). `tools/build_web.sh --patches` stops once everything is patched and needs no ROM: N64Recomp-browser's CI
+runs it over its own checkout, so a change there that stops this repo's patches applying is caught where it is made.
 
 `web-build/build-web` then holds `JetForceGeminiRecompiled.html`, `.js`, `.wasm`, `.data` and `coi_serviceworker.js`.
 The page must be cross-origin isolated: serve the folder with `Cross-Origin-Opener-Policy: same-origin` and

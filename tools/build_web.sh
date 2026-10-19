@@ -3,11 +3,13 @@
 # what it needs and how to serve it):
 #
 #   tools/build_web.sh [path/to/rom.z64]
+#   tools/build_web.sh --patches          the patch step alone: no ROM, and only git, CMake and Python
 #
 # The ROM defaults to baserom.us.z64 next to build_linux.sh, and is needed once: its copy stays in web-build/. Safe
 # to run again after a pull: every step skips what is done or redoes only what changed. Extra arguments for the page's
 # CMake configure go in $WEB_CMAKE_ARGS (it runs once per build dir: delete web-build/build-web/build.ninja to
-# configure again).
+# configure again). --patches stops once everything is patched, which N64Recomp-browser's CI runs with its own checkout
+# as lib/N64Recomp-browser, so a change there that stops this repo's patches applying is red where it is made.
 #
 # The page is the base project build_linux.sh builds, with the same JFG patches, in web-build/, but its libraries are
 # at the upstream commits N64Recomp-browser's patches are made on (lib/N64Recomp-browser/patches/patches.txt), with
@@ -23,6 +25,8 @@
 # also takes the page's own hooks (patches/web/jfg.us.web.toml).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
+PATCHES_ONLY=false
+if [ "${1:-}" = --patches ]; then PATCHES_ONLY=true; shift; fi
 ROM="${1:-$HERE/baserom.us.z64}"
 case "$ROM" in /*) ;; *) ROM="$PWD/$ROM" ;; esac
 WORK="$HERE/web-build"
@@ -34,7 +38,9 @@ step() { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nError: %s\n' "$*" >&2; exit 1; }
 
 [ -f "$BROWSER/patches/patches.txt" ] || fail "lib/N64Recomp-browser is missing: git submodule update --init lib/N64Recomp-browser"
-for t in git cmake ninja clang clang++ python3 emcmake embuilder; do command -v "$t" > /dev/null || fail "$t not found"; done
+TOOLS="git cmake ninja clang clang++ python3 emcmake embuilder"
+! $PATCHES_ONLY || TOOLS="git cmake python3"
+for t in $TOOLS; do command -v "$t" > /dev/null || fail "$t not found"; done
 upstream() { awk -v n="$1" '$1 == n { print $4 }' "$BROWSER/patches/patches.txt"; }
 
 # ---------------------------------------------------------------- the base project
@@ -111,6 +117,7 @@ if [ "$(cat "$PATCHED" 2> /dev/null)" != "$(patched_state 2> /dev/null)" ]; then
     [ ! -f "$HERE/src/rt64_shaders.txt" ] || cp "$HERE/src/rt64_shaders.txt" src/
     patched_state > "$PATCHED"
 fi
+! $PATCHES_ONLY || { step "Patched"; exit 0; }
 
 # ---------------------------------------------------------------- the recompiled code
 step "Building the recompilers"
