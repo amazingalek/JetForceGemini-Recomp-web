@@ -68,8 +68,9 @@ LOAD = [["until", "Device Name", 30000], ["wait", 9000]]
 TITLE, STORY_FIRST, CHARACTER_SELECT, GOLDWOOD_OPENING = 349, 322, 127, 93
 SETUP = [["rom", 473, 197], ["wait", 4000]]
 # Load ROM once the shader list Chrome builds behind the launcher is done: a click while it builds can be lost. Firefox
-# builds none there, and its line saying so is the one waited for.
-PLAY_SETUP = [["until", r"RT64: all \d+ prebuilt shaders built|once the game draws", 60000], *SETUP]
+# builds none there, and its line saying so is the one waited for. It waits in load, right after Device Name: an until
+# takes only lines that come after it starts, and the line can come before setup.
+PLAY_LOAD = [LOAD[0], ["until", r"RT64: all \d+ prebuilt shaders built|once the game draws", 180000], *LOAD[1:]]
 # A press of the stick: one row of the name keyboard.
 DOWN = [["hold", "KeyS", "s", 83, 150], ["wait", 400]]
 START = [["eval", "try { FS.unlink('/home/web_user/saves/jfg-us.bin'); } catch (e) {}"],
@@ -168,7 +169,7 @@ play_plan = {
         "60ths it adds each frame's length to), so every browser plays as much of each room whatever frames it gives the",
         "game; the last step reads where the character is (the player list's first object)."],
     "page": "JetForceGeminiRecompiled.html",
-    "load": LOAD, "setup": PLAY_SETUP, "start": START,
+    "load": PLAY_LOAD, "setup": SETUP, "start": START,
     "play": ENTER + [CLOCK, *[s for _, character, rooms in PLANETS for s in visit(rooms[0], character, "need")],
                      *[s for play in PLAYS for s in play_steps(*play)], WHERE],
 }
