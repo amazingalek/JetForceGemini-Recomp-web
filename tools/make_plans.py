@@ -11,7 +11,8 @@ region is byte 0x102 of a level's header, src/jfg/jfg_debug_menu.cpp's region_na
 that belong to none left out. Places that draw shaders a planet's rooms don't (FIGHTS: bosses, a cutscene, a race) are
 played again in a load of their own under their planet's section name, every weapon given (shader_survey.js's arm()),
 enemies fought for about 25 s a round: out and back by as much, firing as it goes (Z), aiming (R), the camera turned,
-jumping and changing weapon. Run it again after changing PLANETS or FIGHTS."""
+jumping and changing weapon. The play plan tours the first room of every planet and then plays the rooms in PLAYS
+for longer, two FIGHT rounds each. Run it again after changing PLANETS, FIGHTS or PLAYS."""
 import json, os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -60,12 +61,15 @@ CLOCK = ["clock", "n64r(0x800FD748)", 60]
 WHERE = ["eval", "(() => { const f = (a) => new Float32Array(new Uint32Array([n64r(a)]).buffer)[0]; const o = n64r(n64r(0x800F2D0C)); "
                  "return [0x0C, 0x10, 0x14].map((i) => Math.round(f(o + i))); })()"]
 
-def visit(level, character):
-    return [["eval", f"warp({level}, {character})"], ["wait", 3500], *LOOK]
+def visit(level, character, op="eval"):
+    return [[op, f"warp({level}, {character})"], ["wait", 3500], *LOOK]
 
 LOAD = [["until", "Device Name", 30000], ["wait", 9000]]
 TITLE, STORY_FIRST, CHARACTER_SELECT, GOLDWOOD_OPENING = 349, 322, 127, 93
 SETUP = [["rom", 473, 197], ["wait", 4000]]
+# Load ROM once the shader list Chrome builds behind the launcher is done: a click while it builds can be lost. Firefox
+# builds none there, and its line saying so is the one waited for.
+PLAY_SETUP = [["until", r"RT64: all \d+ prebuilt shaders built|once the game draws", 60000], *SETUP]
 # A press of the stick: one row of the name keyboard.
 DOWN = [["hold", "KeyS", "s", 83, 150], ["wait", 400]]
 START = [["eval", "try { FS.unlink('/home/web_user/saves/jfg-us.bin'); } catch (e) {}"],
@@ -111,6 +115,15 @@ def fight_steps(places):
         steps += [["eval", f"warp({level}, {character})"], ["wait", wait * 1000], ["eval", "arm()"], *FIGHT * rounds]
     return steps
 
+# The play plan's longer plays after the tour, rooms of other looks than the planets' first ones, by the game's level
+# numbers: (name, level, character). Each is a need that fails the run unless that level is playing, every weapon and
+# the invulnerability cheat given (arm()), a shot 8 s in and two FIGHT rounds, about 50 s.
+PLAYS = [("tawfret-castle", 136, JUNO), ("ichor", 49, VELA), ("water-ruin", 246, LUPUS)]
+
+def play_steps(name, level, character):
+    return [["need", f"warp({level}, {character})"], ["wait", 5000], ["eval", "arm()"], ["wait", 3000],
+            ["shot", f"{name}.png"], *FIGHT * 2]
+
 def sections():
     fights = dict(FIGHTS)
     for name, character, rooms in PLANETS:
@@ -145,12 +158,19 @@ shader_plan = {
 play_plan = {
     "header": [
         "Jet Force Gemini's play plan for N64Recomp-browser's tools/play_page.mjs, written by tools/make_plans.py: the boot",
-        "as the shader plan's, then the first room of every planet in turn. Its waits and holds there are on the game's own",
-        "clock, Time (the 60ths it adds each frame's length to), so every browser plays as much of each room whatever frames",
-        "it gives the game; the last step reads where the character is (the player list's first object)."],
+        "as the shader plan's (Load ROM once the shader list Chrome builds behind the launcher is done; Firefox builds none",
+        "there, and its line saying so is the one waited for), then, in one load, the first room of every planet in turn,",
+        "a few seconds each, and three rooms the tour doesn't reach played about 50 s each: Tawfret's castle as Juno,",
+        "Ichor as Vela and the Water Ruin's lost island as Lupus, every weapon and the invulnerability cheat given",
+        "(tools/shader_survey.js's arm()), out and back by as much about where the warp leaves the character, firing,",
+        "aiming, jumping, turning the camera and changing weapon. Every room is reached by the survey's warp(), a need that",
+        "fails the run unless that level is the one playing. Its waits and holds are on the game's own clock, Time (the",
+        "60ths it adds each frame's length to), so every browser plays as much of each room whatever frames it gives the",
+        "game; the last step reads where the character is (the player list's first object)."],
     "page": "JetForceGeminiRecompiled.html",
-    "load": LOAD, "setup": SETUP, "start": START,
-    "play": ENTER + [CLOCK, *[s for _, character, rooms in PLANETS for s in visit(rooms[0], character)], WHERE],
+    "load": LOAD, "setup": PLAY_SETUP, "start": START,
+    "play": ENTER + [CLOCK, *[s for _, character, rooms in PLANETS for s in visit(rooms[0], character, "need")],
+                     *[s for play in PLAYS for s in play_steps(*play)], WHERE],
 }
 for name, plan in (("shader_plan.json", shader_plan), ("play_plan.json", play_plan)):
     with open(os.path.join(HERE, name), "w", newline="\n") as f:
