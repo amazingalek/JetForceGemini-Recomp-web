@@ -1,9 +1,9 @@
 // Evaluated in the page by N64Recomp-browser's tools/record_shaders.mjs and play_page.mjs (tools/shader_plan.json,
 // tools/play_plan.json), to reach any level by code, without anyone playing. The page's build exports the debug
 // menu's level warp (src/jfg/jfg_debug_menu.cpp, jfg_web_warp): mainChangeLevel(level, character, 0, entrance, mode,
-// 0) at the next tick, as the game's own level exits call it. warp(level, character, entrance) resolves once the
-// level the game is on (the halfword at 0x800A323C, mainGetCurrentLevel()) is that one, or with false after 30 s;
-// level() gives it, and waitLevel(id, ms) waits for one. arm() sets the game's invulnerability cheat
+// 0) at the next tick, as the game's own level exits call it. warp(level, character, entrance, ms) resolves once the
+// level the game is on (the halfword at 0x800A323C, mainGetCurrentLevel()) is that one, or with false after ms (30 s
+// if not given); level() gives it, and waitLevel(id, ms) waits for one. arm() sets the game's invulnerability cheat
 // (invulnerabilityCheat, 0x800A5070) and gives each character every weapon with at least 150 rounds, as the debug
 // menu's weapons editor does (the owned mask at +0x0A of the character, the count at +0x6F, ammo at +0x14), so a
 // section can fight with them all. RDRAM is found as page_driver.mjs's n64r finds it; bytes and halfwords sit at the
@@ -31,9 +31,9 @@
     for (let t = 0; t < ms; t += 100) { if (r16(CURRENT) === id) return true; await sleep(100); }
     return false;
   };
-  window.warp = async (id, character = 0, entrance = 0) => {
+  window.warp = async (id, character = 0, entrance = 0, ms = 30000) => {
     Module._jfg_web_warp(id, character, entrance);
-    return window.waitLevel(id, 30000);
+    return window.waitLevel(id, ms);
   };
   window.arm = () => {
     const game = r32(0x800FD7D4);

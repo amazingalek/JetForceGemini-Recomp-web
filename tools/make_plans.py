@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Writes tools/shader_plan.json and tools/play_plan.json, the plans N64Recomp-browser's tools/record_shaders.mjs and
-play_page.mjs follow for the web page (src/rt64_shaders.txt's header says how the list was recorded with the first).
+"""Writes tools/shader_plan.json, tools/play_plan.json and tools/play_plan_extended.json, the plans N64Recomp-browser's
+tools/record_shaders.mjs and play_page.mjs follow for the web page (src/rt64_shaders.txt's header says how the list was recorded with the first).
 Both reach the game the same way: the save deleted, so that Game 1 is a new game on every load, then the launcher's
 Start Game, the logos and the title, Start to the file select, A on New Game and on the name keyboard's 1, the stick
 down to END and A, the story intro skipped with Start, and the character select. From there a section picks Juno,
@@ -11,8 +11,10 @@ region is byte 0x102 of a level's header, src/jfg/jfg_debug_menu.cpp's region_na
 that belong to none left out. Places that draw shaders a planet's rooms don't (FIGHTS: bosses, a cutscene, a race) are
 played again in a load of their own under their planet's section name, every weapon given (shader_survey.js's arm()),
 enemies fought for about 25 s a round: out and back by as much, firing as it goes (Z), aiming (R), the camera turned,
-jumping and changing weapon. The play plan tours the first room of every planet and then plays the rooms in PLAYS
-for longer, two FIGHT rounds each. Run it again after changing PLANETS, FIGHTS or PLAYS."""
+jumping and changing weapon. The play plan, the page's regular play, plays Goldwood's first room, one FIGHT round, its
+boot's timeouts cut to what a run needs so that it takes at most 3 minutes with every one run out; the extended plan,
+for when a longer play is needed, plays every room in PLAYS that way, at most 5 minutes. Run it again after changing
+PLANETS, FIGHTS or PLAYS."""
 import json, os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -61,18 +63,20 @@ CLOCK = ["clock", "n64r(0x800FD748)", 60]
 WHERE = ["eval", "(() => { const f = (a) => new Float32Array(new Uint32Array([n64r(a)]).buffer)[0]; const o = n64r(n64r(0x800F2D0C)); "
                  "return [0x0C, 0x10, 0x14].map((i) => Math.round(f(o + i))); })()"]
 
-def visit(level, character, op="eval"):
-    return [[op, f"warp({level}, {character})"], ["wait", 3500], *LOOK]
+def visit(level, character):
+    return [["eval", f"warp({level}, {character})"], ["wait", 3500], *LOOK]
 
 LOAD = [["until", "Device Name", 30000], ["wait", 9000]]
 TITLE, STORY_FIRST, CHARACTER_SELECT, GOLDWOOD_OPENING = 349, 322, 127, 93
 SETUP = [["rom", 473, 197], ["wait", 4000]]
 # Load ROM once the shader list Chrome builds behind the launcher is done: a click while it builds can be lost. Firefox
-# builds none there, and its line saying so is the one waited for. It waits in load, right after Device Name: an until
-# takes only lines that come after it starts, and the line can come before setup.
-PLAY_LOAD = [LOAD[0], ["until", r"RT64: all \d+ prebuilt shaders built|once the game draws", 180000], *LOAD[1:]]
+# builds none there, and its line saying so is the one waited for. It is load's first step: an until takes only lines
+# that come after it starts, and Firefox's line comes right after Device Name.
+PLAY_LOAD = [["until", r"RT64: all \d+ prebuilt shaders built|once the game draws", 60000], ["wait", 5000]]
 # A press of the stick: one row of the name keyboard.
 DOWN = [["hold", "KeyS", "s", 83, 150], ["wait", 400]]
+# The regular plan's: the list's line waited for less, as the regular play's 3 minutes need (Chrome's came in 17-55 s).
+REGULAR_LOAD = [PLAY_LOAD[0][:2] + [40000], PLAY_LOAD[1]]
 START = [["eval", "try { FS.unlink('/home/web_user/saves/jfg-us.bin'); } catch (e) {}"],
          ["click", 765, 277], ["until", "Initialized RDRAM", 60000], ["wait", 3000],
          ["evalFile", "shader_survey.js"], ["eval", f"waitLevel({TITLE}, 60000)"],
@@ -83,6 +87,15 @@ START = [["eval", "try { FS.unlink('/home/web_user/saves/jfg-us.bin'); } catch (
 # Juno picked at the character select, into Goldwood's opening; kept only in Goldwood's section.
 ENTER = [["pressUntil", "Space", " ", 32, 100, 1500, f"level() !== {CHARACTER_SELECT}", 30000],
          ["eval", f"waitLevel({GOLDWOOD_OPENING}, 15000)"], ["wait", 1500]]
+# The play plan's START and ENTER: the same steps, each timeout what a run needs with room to spare (the title came
+# 15-17 s after the save's evalFile, every other step in 5 s or less).
+PLAY_START = [*START[:2], ["until", "Initialized RDRAM", 10000], ["wait", 2000], START[4],
+              ["eval", f"waitLevel({TITLE}, 22000)"],
+              ["pressUntil", "Enter", "Enter", 13, 100, 1500, f"level() !== {TITLE}", 10000], *START[7:-3],
+              ["eval", f"waitLevel({STORY_FIRST}, 8000)"],
+              ["pressUntil", "Enter", "Enter", 13, 100, 1500, f"level() === {CHARACTER_SELECT}", 10000], ["wait", 2000]]
+PLAY_ENTER = [["pressUntil", "Space", " ", 32, 100, 1500, f"level() !== {CHARACTER_SELECT}", 8000],
+              ["eval", f"waitLevel({GOLDWOOD_OPENING}, 12000)"], ["wait", 1500]]
 
 def section_steps(name, character, rooms):
     enter = ENTER if name == "goldwood" else [["keep", False], *ENTER, ["keep", True]]
@@ -116,14 +129,16 @@ def fight_steps(places):
         steps += [["eval", f"warp({level}, {character})"], ["wait", wait * 1000], ["eval", "arm()"], *FIGHT * rounds]
     return steps
 
-# The play plan's longer plays after the tour, rooms of other looks than the planets' first ones, by the game's level
-# numbers: (name, level, character). Each is a need that fails the run unless that level is playing, every weapon and
-# the invulnerability cheat given (arm()), a shot 8 s in and two FIGHT rounds, about 50 s.
-PLAYS = [("tawfret-castle", 136, JUNO), ("ichor", 49, VELA), ("water-ruin", 246, LUPUS)]
+# The play plan's rooms, by the game's level numbers: (name, level, character, seconds), Goldwood's first room (the first
+# a player lands in) and three of other looks. Each is a need that fails the run unless that level is playing within
+# the seconds given (Goldwood's 12: in Firefox the game waits about 10 s there for Goldwood's section, which its opening
+# starts), every weapon and the invulnerability cheat given (arm()), a shot about 8 s in and a FIGHT round, about 30 s.
+PLAYS = [("goldwood", 21, JUNO, 12), ("tawfret-castle", 136, JUNO, 5), ("ichor", 49, VELA, 5),
+         ("water-ruin", 246, LUPUS, 5)]
 
-def play_steps(name, level, character):
-    return [["need", f"warp({level}, {character})"], ["wait", 5000], ["eval", "arm()"], ["wait", 3000],
-            ["shot", f"{name}.png"], *FIGHT * 2]
+def play_steps(name, level, character, seconds, regular=False):
+    return [["need", f"warp({level}, {character}, 0, {seconds * 1000})"], ["wait", 3000], ["eval", "arm()"],
+            *([] if regular else [["wait", 3000]]), ["shot", f"{name}.png"], *FIGHT]
 
 def sections():
     fights = dict(FIGHTS)
@@ -158,22 +173,39 @@ shader_plan = {
 }
 play_plan = {
     "header": [
-        "Jet Force Gemini's play plan for N64Recomp-browser's tools/play_page.mjs, written by tools/make_plans.py: the boot",
-        "as the shader plan's (Load ROM once the shader list Chrome builds behind the launcher is done; Firefox builds none",
-        "there, and its line saying so is the one waited for), then, in one load, the first room of every planet in turn,",
-        "a few seconds each, and three rooms the tour doesn't reach played about 50 s each: Tawfret's castle as Juno,",
-        "Ichor as Vela and the Water Ruin's lost island as Lupus, every weapon and the invulnerability cheat given",
-        "(tools/shader_survey.js's arm()), out and back by as much about where the warp leaves the character, firing,",
-        "aiming, jumping, turning the camera and changing weapon. Every room is reached by the survey's warp(), a need that",
-        "fails the run unless that level is the one playing. Its waits and holds are on the game's own clock, Time (the",
-        "60ths it adds each frame's length to), so every browser plays as much of each room whatever frames it gives the",
-        "game; the last step reads where the character is (the player list's first object)."],
+        "Jet Force Gemini's play plan for N64Recomp-browser's tools/play_page.mjs, written by tools/make_plans.py, its",
+        "regular play of 2-3 minutes: the boot as the shader plan's (Load ROM once the shader list Chrome builds behind the",
+        "launcher is done; Firefox builds none there, and its line saying so is the one waited for) and Goldwood's opening",
+        "as Juno, then, in the same load, Goldwood's first room as Juno, about 25 s, reached by tools/shader_survey.js's",
+        "warp(), a need that fails the run unless that level is the one playing: every weapon and the invulnerability cheat",
+        "given (arm()), out and back by as much about where the warp leaves her, firing, aiming, jumping, turning the camera",
+        "and changing weapon. Its waits and holds are on the game's own clock, Time (the 60ths it adds each frame's length",
+        "to), so every browser plays as much of the room whatever frames it gives the game; the last step reads where the",
+        "character is (the player list's first object). tools/play_plan_extended.json goes on to three more rooms, for",
+        "when a longer play is needed."],
     "page": "JetForceGeminiRecompiled.html",
-    "load": PLAY_LOAD, "setup": SETUP, "start": START,
-    "play": ENTER + [CLOCK, *[s for _, character, rooms in PLANETS for s in visit(rooms[0], character, "need")],
-                     *[s for play in PLAYS for s in play_steps(*play)], WHERE],
+    "load": REGULAR_LOAD, "setup": SETUP, "start": PLAY_START,
+    "play": PLAY_ENTER + [CLOCK, *play_steps(*PLAYS[0], regular=True), WHERE],
 }
-for name, plan in (("shader_plan.json", shader_plan), ("play_plan.json", play_plan)):
+extended_plan = {
+    "header": [
+        "Jet Force Gemini's extended play plan for N64Recomp-browser's tools/play_page.mjs, written by tools/make_plans.py,",
+        "at most 5 minutes, for when a longer play than the regular one (tools/play_plan.json) is needed: the boot as the",
+        "shader plan's (Load ROM once the shader list Chrome builds behind the launcher is done; Firefox builds none there,",
+        "and its line saying so is the one waited for) and Goldwood's opening as Juno, then, in the same load, four rooms",
+        "played about 30 s each: Goldwood's first as Juno, Tawfret's castle as Juno, Ichor as Vela and the Water Ruin's lost",
+        "island as Lupus, every weapon and the invulnerability cheat given (tools/shader_survey.js's arm()), out and back by",
+        "as much about where the warp leaves the character, firing, aiming, jumping, turning the camera and changing weapon.",
+        "Every room is reached by the survey's warp(), a need that fails the run unless that level is the one playing. Its",
+        "waits and holds are on the game's own clock, Time (the 60ths it adds each frame's length to), so every browser",
+        "plays as much of each room whatever frames it gives the game; the last step reads where the character is (the",
+        "player list's first object)."],
+    "page": "JetForceGeminiRecompiled.html",
+    "load": PLAY_LOAD, "setup": SETUP, "start": PLAY_START,
+    "play": PLAY_ENTER + [CLOCK, *[s for play in PLAYS for s in play_steps(*play)], WHERE],
+}
+for name, plan in (("shader_plan.json", shader_plan), ("play_plan.json", play_plan),
+                   ("play_plan_extended.json", extended_plan)):
     with open(os.path.join(HERE, name), "w", newline="\n") as f:
         json.dump(plan, f, indent=1)
         f.write("\n")
