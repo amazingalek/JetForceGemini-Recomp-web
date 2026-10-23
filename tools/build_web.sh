@@ -17,7 +17,7 @@
 # and then the port's own changes to them, made again for those commits:
 #   patches/web/rt64.patch              the port's rt64 (VibinToast/rt64: F3DDKR, Dinosaur Planet's and JFG's changes),
 #                                       with the newer imgui and implot it pins
-#   patches/web/N64ModernRuntime.patch  the port's runtime changes (sound, a display list parsed before its task ends),
+#   patches/web/N64ModernRuntime.patch  the port's runtime changes (sound, a display list read from a copy of RDRAM),
 #                                       but for a sound buffer's KSEG1 address and RDRAM check, which N64Recomp-browser's
 #                                       queue_audio_buffer makes for every game
 #   patches/web/N64Recomp.patch         the port's RSPRecomp change (F3DDKR's and the audio microcode's)

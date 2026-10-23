@@ -373,20 +373,10 @@ index 2ece15e..8c93b94 100644
  #include "ui/recomp_ui.h"
  #include "librecomp/helpers.hpp"
 diff --git a/src/renderer/renderer.cpp b/src/renderer/renderer.cpp
-index 179d05e..0fa74b0 100644
+index 179d05e..d8a8c5e 100644
 --- a/src/renderer/renderer.cpp
 +++ b/src/renderer/renderer.cpp
-@@ -33,6 +33,9 @@ extern "C" int jfg_refresh_override(void);   // src/jfg/jfg_frame_rate.cpp: "Fra
- #include <json/json.hpp>
- 
- #include "ultramodern/config.hpp"
-+#ifdef __EMSCRIPTEN__
-+#include "ultramodern/ultramodern.hpp" // display_list_read
-+#endif
- 
- #include "common/overloaded.h"
- #include "config/config.hpp"
-@@ -232,6 +235,12 @@ RT64::UserConfiguration::RefreshRate to_rt64(ultramodern::renderer::RefreshRate
+@@ -232,6 +232,12 @@ RT64::UserConfiguration::RefreshRate to_rt64(ultramodern::renderer::RefreshRate
  }
  
  RT64::UserConfiguration::InternalColorFormat to_rt64(ultramodern::renderer::HighPrecisionFramebuffer option) {
@@ -399,7 +389,7 @@ index 179d05e..0fa74b0 100644
      switch (option) {
          case ultramodern::renderer::HighPrecisionFramebuffer::Off:
              return RT64::UserConfiguration::InternalColorFormat::Standard;
-@@ -381,9 +390,9 @@ RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle win
+@@ -381,9 +387,9 @@ RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle win
      fprintf(stderr, "[JFG] Initializing RT64 renderer\n");
      static unsigned char dummy_rom_header[0x40];
      recompui::set_render_hooks();
@@ -411,7 +401,7 @@ index 179d05e..0fa74b0 100644
      // have their own renderer and remain enabled on macOS.
      debug_ui::backend::set_render_hooks();
  #endif
-@@ -394,6 +403,9 @@ RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle win
+@@ -394,6 +400,9 @@ RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle win
      appCore.window = window_handle.window;
  #elif defined(__linux__) || defined(__ANDROID__)
      appCore.window = window_handle;
@@ -421,18 +411,32 @@ index 179d05e..0fa74b0 100644
  #elif defined(__APPLE__)
      appCore.window.window = window_handle.window;
      appCore.window.view = window_handle.view;
-@@ -440,6 +452,11 @@ RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle win
+@@ -528,15 +537,23 @@ RT64Context::~RT64Context() {
+     }
+ }
  
-     // Create the RT64 application.
-     app = std::make_unique<RT64::Application>(appCore, appConfig);
-+#ifdef __EMSCRIPTEN__
-+    // The game's thread waits until each display list has been read (ultramodern's submit_rsp_task): let it go at the
-+    // list's full sync, before RT64 waits for the GPU and render to RAM's copy, which on a page held the game to 20 fps.
-+    RT64::fullSyncReachedCallback = ultramodern::display_list_read;
-+#endif
+-void RT64Context::send_dl(const OSTask* task) {
++void RT64Context::send_dl(const OSTask* task, uint8_t* rdram_snapshot) {
+     // While a cutscene is being skipped the display lists of the skipped frames are dropped, so the skip runs at the
+     // speed of the game logic alone; the last picture stays up meanwhile.
+     if (jfg_skip_render_active()) return;
+     check_texture_pack_actions();
++    // RT64 reads the list, and what it points at, from the copy of RDRAM the runtime took when the game submitted it
++    // (ultramodern's submit_rsp_task), and writes render to RAM's copies to the game's RDRAM too (gameRDRAM); the
++    // screen's updates read the game's.
++    uint8_t* const game_rdram = app->state->RDRAM;
++    app->state->RDRAM = rdram_snapshot;
++    app->state->gameRDRAM = game_rdram;
+     app->state->rsp->reset();
+     constexpr uint32_t DkrRdramMask = 0x007FFFFFU;
+     app->interpreter->loadUCodeGBI(task->t.ucode & DkrRdramMask, task->t.ucode_data & DkrRdramMask, true);
+-    app->processDisplayLists(app->core.RDRAM, task->t.data_ptr & DkrRdramMask, 0, true);
++    app->processDisplayLists(rdram_snapshot, task->t.data_ptr & DkrRdramMask, 0, true);
++    app->state->RDRAM = game_rdram;
++    app->state->gameRDRAM = nullptr;
+ }
  
-     // Set initial user config settings based on the current settings.
-     auto& cur_config = ultramodern::renderer::get_graphics_config();
+ void RT64Context::preload_common_shaders() {
 @@ -682,6 +699,25 @@ void RT64Context::update_game_aspect_override() {
          game_aspect_override ? "enabled" : "disabled");
  }
@@ -497,13 +501,15 @@ index 179d05e..0fa74b0 100644
              if (show_errors) {
                  recompui::message_box(("Mod has the special config option id for enabling an HD texture pack (\"" + special_option_texture_pack_enabled + "\"), but the config option doesn't have exactly 2 values.").c_str());
 diff --git a/src/renderer/renderer.hpp b/src/renderer/renderer.hpp
-index 1eeacd5..0d5a0c4 100644
+index 1eeacd5..8b7bfbe 100644
 --- a/src/renderer/renderer.hpp
 +++ b/src/renderer/renderer.hpp
-@@ -25,6 +25,7 @@ namespace dino::renderer {
+@@ -24,7 +24,8 @@ namespace dino::renderer {
+         bool update_config(const ultramodern::renderer::GraphicsConfig &old_config, const ultramodern::renderer::GraphicsConfig &new_config) override;
  
          void enable_instant_present() override;
-         void send_dl(const OSTask *task) override;
+-        void send_dl(const OSTask *task) override;
++        void send_dl(const OSTask *task, uint8_t *rdram_snapshot) override;
 +        void send_dummy_workload(uint32_t fb_address) override;
          void update_screen() override;
          void shutdown() override;

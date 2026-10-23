@@ -46,21 +46,21 @@ index 1cb3f6a..b117649 100644
      RspUcodeFunc* ucode_func = rsp_callbacks.get_rsp_microcode(task);
  
      if (ucode_func == nullptr) {
-diff --git a/ultramodern/include/ultramodern/ultramodern.hpp b/ultramodern/include/ultramodern/ultramodern.hpp
-index da24a61..7bc1795 100644
---- a/ultramodern/include/ultramodern/ultramodern.hpp
-+++ b/ultramodern/include/ultramodern/ultramodern.hpp
-@@ -101,6 +101,8 @@ void set_entrypoint_thread();
- bool is_entrypoint_thread();
- bool is_game_thread();
- void submit_rsp_task(RDRAM_ARG PTR(OSTask) task);
-+// Called by the renderer, on the graphics thread, once the display list it is drawing has been read from RDRAM.
-+void display_list_read();
- void send_si_message();
- uint32_t get_speed_multiplier();
+diff --git a/ultramodern/include/ultramodern/renderer_context.hpp b/ultramodern/include/ultramodern/renderer_context.hpp
+index c543624..02e9d8d 100644
+--- a/ultramodern/include/ultramodern/renderer_context.hpp
++++ b/ultramodern/include/ultramodern/renderer_context.hpp
+@@ -83,7 +83,7 @@ namespace ultramodern {
+                 virtual bool update_config(const GraphicsConfig& old_config, const GraphicsConfig& new_config) = 0;
  
+                 virtual void enable_instant_present() = 0;
+-                virtual void send_dl(const OSTask* task) = 0;
++                virtual void send_dl(const OSTask* task, uint8_t* rdram_snapshot) = 0;
+                 virtual void send_dummy_workload(uint32_t fb_address) = 0;
+                 virtual void update_screen() = 0;
+                 virtual void shutdown() = 0;
 diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
-index 343d069..00614e3 100644
+index 343d069..97b6cd0 100644
 --- a/ultramodern/src/events.cpp
 +++ b/ultramodern/src/events.cpp
 @@ -1,5 +1,6 @@
@@ -70,52 +70,24 @@ index 343d069..00614e3 100644
  #include <chrono>
  #include <cinttypes>
  #include <variant>
-@@ -8,6 +9,7 @@
+@@ -8,6 +9,8 @@
  #include <mutex>
  #include <queue>
  #include <cstring>
 +#include <cstdlib>
++#include <memory>
  
  #include "blockingconcurrentqueue.h"
  
-@@ -26,6 +28,7 @@ void ultramodern::events::set_callbacks(const ultramodern::events::callbacks_t&
+@@ -26,6 +29,7 @@ void ultramodern::events::set_callbacks(const ultramodern::events::callbacks_t&
  
  struct SpTaskAction {
      OSTask task;
-+    moodycamel::LightweightSemaphore* parsed;
++    std::unique_ptr<uint8_t[]> rdram_snapshot;
  };
  
  struct ScreenUpdateAction {
-@@ -419,6 +422,28 @@ void dp_complete() {
-     ultramodern::enqueue_external_message_src(events_context.dp.mq, events_context.dp.msg, false, ultramodern::EventMessageSource::Dp);
- }
- 
-+// The submitting game thread waits in submit_rsp_task until the graphics thread has read the task's display list, and
-+// while it waits no other game thread runs (one runs at a time). The renderer calls display_list_read at the list's
-+// last full sync (the one its end follows), before it draws what it read and waits for the GPU, render to RAM's copy
-+// included, so the game runs on meanwhile. The RSP's completion comes there too, the list being read, and the RDP's once
-+// the frame is drawn. The game's scheduler yields a graphics task when a sound task is due and starts the sound task
-+// once the RSP stops, which the runtime answers with the graphics task's completion (a yield is never taken): sent once
-+// the frame was drawn, the sound waited for RT64's GPU waits too, and ran short where the game ran at 60 and the GPU
-+// was busy. Only the graphics thread touches these.
-+static moodycamel::LightweightSemaphore* pending_parsed = nullptr;
-+static bool pending_sp_complete = false;
-+
-+void ultramodern::display_list_read() {
-+    if (pending_parsed != nullptr) {
-+        pending_parsed->signal();
-+        pending_parsed = nullptr;
-+    }
-+    if (pending_sp_complete) {
-+        pending_sp_complete = false;
-+        sp_complete();
-+    }
-+}
-+
- void task_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_ready) {
-     ultramodern::set_native_thread_name("SP Task Thread");
-     ultramodern::set_native_thread_priority(ultramodern::ThreadPriority::Normal);
-@@ -505,26 +530,77 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -505,6 +509,13 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
      // Notify the caller thread that this thread is ready.
      thread_ready->signal();
  
@@ -129,23 +101,20 @@ index 343d069..00614e3 100644
      while (!exited) {
          // Try to pull an action from the queue
          Action action;
-         if (events_context.action_queue.wait_dequeue_timed(action, 1ms)) {
-             // Determine the action type and act on it
-             if (const auto* task_action = std::get_if<SpTaskAction>(&action)) {
--                // Tell the game that the RSP completed instantly. This will allow it to queue other task types, but it won't
--                // start another graphics task until the RDP is also complete. Games usually preserve the RSP inputs until the RDP
--                // is finished as well, so sending this early shouldn't be an issue in most cases.
--                // If this causes issues then the logic can be replaced with responding to yield requests.
--                sp_complete();
+@@ -515,6 +526,7 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+                 // start another graphics task until the RDP is also complete. Games usually preserve the RSP inputs until the RDP
+                 // is finished as well, so sending this early shouldn't be an issue in most cases.
+                 // If this causes issues then the logic can be replaced with responding to yield requests.
++                // (The renderer reads the list from the copy of RDRAM submit_rsp_task took, so the game may reuse its memory.)
+                 sp_complete();
                  ultramodern::measure_input_latency();
  
-                 PTR(u64) displaylist = task_action->task.t.data_ptr;
+@@ -522,9 +534,43 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                  ultramodern::extensions::on_displaylist_submitted(displaylist);
  
                  [[maybe_unused]] auto renderer_start = std::chrono::high_resolution_clock::now();
-+                pending_parsed = task_action->parsed;
-+                pending_sp_complete = true;
-                 renderer_context->send_dl(&task_action->task);
+-                renderer_context->send_dl(&task_action->task);
++                renderer_context->send_dl(&task_action->task, task_action->rdram_snapshot.get());
                  [[maybe_unused]] auto renderer_end = std::chrono::high_resolution_clock::now();
  
 +                const auto renderer_time = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -182,30 +151,25 @@ index 343d069..00614e3 100644
 +                    last_slow_renderer_log = renderer_end;
 +                }
 +
-+                // RT64's HLE path reads the task's display list and its referenced
-+                // vertex/texture data synchronously in send_dl(). DKR reuses that
-+                // memory as soon as it receives SP completion, so acknowledging the
-+                // task before parsing finishes races the game against the graphics
-+                // thread on slower hosts and produces malformed commands.
-+                // The HLE renderer reads display-list, matrix, vertex, and
-+                // texture data directly from RDRAM during send_dl(). Release
-+                // the submitting game thread only after those reads finish;
-+                // DKR starts rebuilding its double-buffered arena immediately
-+                // after submission, before it necessarily receives SP/DP.
-+                // The renderer has released it and completed the RSP already if it saw the list's last full sync
-+                // (display_list_read).
-+                ultramodern::display_list_read();
                  dp_complete();
                  // TODO hook the parsed event up to the actual parsing point when a callback is added to RT64.
                  ultramodern::extensions::on_displaylist_parsed(displaylist);
-@@ -714,7 +790,9 @@ void ultramodern::submit_rsp_task(RDRAM_ARG PTR(OSTask) task_) {
+@@ -713,8 +759,17 @@ void ultramodern::submit_rsp_task(RDRAM_ARG PTR(OSTask) task_) {
+     OSTask* task = TO_PTR(OSTask, task_);
  
      // Send gfx tasks to the graphics action queue
++    // The renderer reads a graphics task's display list, and the matrices, vertices and textures it points at, from a
++    // copy of RDRAM taken here: the game starts rebuilding a list's memory as soon as it has submitted it, and the
++    // submitting thread is its scheduler, which starts every RSP task, so it goes on at once and a sound task never waits
++    // for RT64 to reach the list. Render to RAM's copies are written to RDRAM as well as the copy (the renderer's
++    // send_dl), and the scheduler starts a graphics task only once the one before has the RDP's completion, sent once
++    // its frame is drawn and copied, so each copy holds the frames and Z buffer the lists before it drew.
      if (task->t.type == M_GFXTASK) {
 -        events_context.action_queue.enqueue(SpTaskAction{ *task });
-+        moodycamel::LightweightSemaphore parsed{ 0 };
-+        events_context.action_queue.enqueue(SpTaskAction{ *task, &parsed });
-+        parsed.wait();
++        constexpr size_t RDRAMSnapshotSize = 0x800000;
++        std::unique_ptr<uint8_t[]> rdram_snapshot{ new uint8_t[RDRAMSnapshotSize] };
++        std::memcpy(rdram_snapshot.get(), rdram, RDRAMSnapshotSize);
++        events_context.action_queue.enqueue(SpTaskAction{ *task, std::move(rdram_snapshot) });
      }
      // Set all other tasks as the RSP task
      else {
