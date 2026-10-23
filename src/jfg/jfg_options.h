@@ -42,13 +42,24 @@ struct State {
     int  bloom_threshold = 70;     // bloom: brightness where glow starts, percent
     int  bloom_radius = 6;         // bloom: blur size (gaussian sigma in ~270-line bloom buffer pixels)
     bool texture_dump = false;     // write every texture drawn to bin/texture_dump as <hash>.png (not saved: off at start)
+#ifdef __EMSCRIPTEN__
+    // A page opens at 60, interpolated up to the display's rate, and widescreen (below), whatever the desktop build
+    // defaults to (N64Recomp-browser's CLAUDE.md, Rules). Its settings saved before it did are moved once (jfg_options.cpp).
+    int  frame_rate = 1;
+    int  smooth_motion = 1;
+#else
     int  frame_rate = 0;           // "Game Frame Rate": 0 = the game's own pacing (30, dropping to 20), 1 = 60 (runInOneFrame). A saved 2
                                    // (the old "60 + Interpolated") loads as 1 with Smooth Motion on
     int  smooth_motion = 0;        // "Smooth Motion": in-between frames from RT64, for either game rate. 0 = off, 1 = up to the
                                    // monitor's rate, else at most that many frames a second (one of smooth_motion_values)
+#endif
     bool smooth_shadows = true;    // "Smooth Shadows": character shadows follow the in-between frames (jfg_shadow_interp.cpp)
     int  interp_limit = 0;         // only read from older settings files: the old Interpolation Limit, carried over to Smooth Motion
+#ifdef __EMSCRIPTEN__
+    bool widescreen = true;
+#else
     bool widescreen = false;       // render the 3D view to the full window width, see jfg_widescreen_active()
+#endif
     int  fov = 100;                // gameplay field of view, percent of the game's own (jfg_fov)
     int  hit_flash = 100;          // red screen when the character is hit: strength, percent (jfg_hit_flash)
     bool hide_floyd = false;       // Floyd is not drawn while he follows the character (jfg_hide_object)

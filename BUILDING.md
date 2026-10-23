@@ -97,16 +97,20 @@ How the page plays in Chrome and Firefox, run by run, is recorded in N64Recomp-b
 [plays.jsonl](https://github.com/n64hub/N64Recomp-browser/blob/main/plays.jsonl) and its
 [games table](https://github.com/n64hub/N64Recomp-browser#games).
 
-On the page the Graphics menu's Framerate is Display by default, where the desktop build's is Original:
-`patches/web/dkr.patch` sets `rr_default` with Emscripten and moves a page's settings saved before graphics config
-version 6 to Display once, so RT64 interpolates between the game's frames to the display's rate. Before
-N64Recomp-browser v0.54.0 it interpolates only now and then in play: the game's shadows' display
-list before each frame's reads as a frame of its own, and the game's frames take 2 and 3 VIs, which rt64 179adb8
-handles. The game's own Frame Rate setting (Visuals) stays Original, 30 frames a second dropping to 20 when a
-frame runs long, as on the N64. On the page every frame does:
-the game sends two display lists a frame, and each takes RT64 10-12 ms with the exact copy, about 6 ms
-of it waiting for the readback (4-5 ms with the late copy, with which a test build held 30). The game can't take the
-late copy (below), so it plays at 20 in every browser, the GPU about a third busy.
+The page opens widescreen, at Game Frame Rate 60 (the menu's "60 (Experimental)") and with Frame Interpolation at
+Monitor (`src/jfg/jfg_options.h`), where the desktop build opens 4:3 at the game's own pacing without Frame
+Interpolation: a page interpolates to the display's rate whatever its desktop build defaults to (N64Recomp-browser's
+CLAUDE.md, Rules). Settings a page saved before it did are moved to those once (`page_defaults` in
+`jfg_port_options.txt`, `src/jfg/jfg_options.cpp`); the Default profile still sets the game's own
+(`src/jfg/jfg_profiles.cpp`).
+
+The game's own pacing is 30 frames a second, dropping to 20 when a frame runs long, as on the N64, and on a page every
+frame does: the game sends two display lists a frame, and each takes RT64 10-12 ms with the exact copy, about 6 ms of
+it waiting for the readback. Game Frame Rate 60 runs the game's logic every retrace (`runInOneFrame`), so the game's
+own frames come at 60 where the page keeps up, and Frame Interpolation has RT64 draw the frames between them at the
+display's rate either way. In headless Chrome on a desktop GPU at the display's 60 the page ran 54-59 game frames a
+second where it ran 29 at the game's own pacing; uncapped at 3840x2000, which stands in for a laptop's integrated
+graphics, RT64 drew ~300 frames a second and the game ran 18-30, against 17-19 at its own pacing.
 
 ## Render to RAM
 

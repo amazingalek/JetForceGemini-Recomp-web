@@ -17,6 +17,11 @@ State g;
 
 // Options persist in a small text file next to the working directory the game is started from.
 const char* const OPTIONS_FILE = "jfg_port_options.txt";
+#ifdef __EMSCRIPTEN__
+// The line a page adds to the file: one without it was saved by a page with the desktop's defaults, 4:3 at the game's
+// own rate with no in-between frames.
+const char* const PAGE_DEFAULTS_LINE = "page_defaults=1\n";
+#endif
 bool g_options_loaded = false;
 
 // Depth fog colours (0xRRGGBB): Haze, Mist, Dusk, Night. Names in the F9 menu and tools/gen_jfg_config_rml.py.
@@ -146,8 +151,24 @@ void load_options() {
     g_options_loaded = true;
     if (std::FILE* f = std::fopen(OPTIONS_FILE, "r")) {
         char key[64]; int value;
-        while (std::fscanf(f, "%63[^=]=%d\n", key, &value) == 2) apply_option(key, value);
+        bool page_defaults = false;
+        while (std::fscanf(f, "%63[^=]=%d\n", key, &value) == 2) {
+            if (std::strcmp(key, "page_defaults") == 0) page_defaults = true;
+            else apply_option(key, value);
+        }
         std::fclose(f);
+#ifdef __EMSCRIPTEN__
+        // Saved before a page opened widescreen at 60, interpolated: those were the old defaults, so they move, once.
+        if (!page_defaults) {
+            const State defaults;
+            g.widescreen = defaults.widescreen;
+            g.frame_rate = defaults.frame_rate;
+            g.smooth_motion = defaults.smooth_motion;
+            save_options();
+        }
+#else
+        (void)page_defaults;
+#endif
     }
     // JFG_FRAME_RATE=0/1/2 (tests): the "Frame rate" option for this run (saved only if an option is changed in the run).
     if (const char* env = std::getenv("JFG_FRAME_RATE")) apply_option("frame_rate", std::atoi(env)); // 2 = 60 + Smooth Motion
@@ -192,6 +213,9 @@ std::string options_text(const State& s) {
 void save_options() {
     if (std::FILE* f = std::fopen(OPTIONS_FILE, "w")) {
         std::fputs(options_text(g).c_str(), f);
+#ifdef __EMSCRIPTEN__
+        std::fputs(PAGE_DEFAULTS_LINE, f);
+#endif
         std::fclose(f);
     }
     profile_autosave();
