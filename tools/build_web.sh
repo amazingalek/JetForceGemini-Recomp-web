@@ -11,18 +11,21 @@
 # configure again). --patches stops once everything is patched, which N64Recomp-browser's CI runs with its own checkout
 # as lib/N64Recomp-browser, so a change there that stops this repo's patches applying is red where it is made.
 #
-# The page is the base project build_linux.sh builds, with the same JFG patches, in web-build/, but its libraries are
-# at the upstream commits N64Recomp-browser's patches are made on (lib/N64Recomp-browser/patches/patches.txt), with
-# the web support patched in, and then the base project's and JFG's own changes to them, made again for those commits:
-#   patches/web/rt64.patch              the base's rt64 changes (Dinosaur Planet's, F3DDKR) and patches/rt64-jfg.patch
-#   patches/web/N64ModernRuntime.patch  the base's runtime changes (sound, a display list parsed before its task ends),
+# The page is built in web-build/, a clone of this checkout at its commit with its uncommitted changes, so the desktop
+# build's lib/ here is left alone. Its libraries there are at the upstream commits N64Recomp-browser's patches are made
+# on (lib/N64Recomp-browser/patches/patches.txt) in place of the port's forks lib/ pins, with the web support patched in,
+# and then the port's own changes to them, made again for those commits:
+#   patches/web/rt64.patch              the port's rt64 (VibinToast/rt64: F3DDKR, Dinosaur Planet's and JFG's changes),
+#                                       with the newer imgui and implot it pins
+#   patches/web/N64ModernRuntime.patch  the port's runtime changes (sound, a display list parsed before its task ends),
 #                                       but for a sound buffer's KSEG1 address and RDRAM check, which N64Recomp-browser's
 #                                       queue_audio_buffer makes for every game
-#   patches/web/dkr.patch               the base project's own code for the page: the canvas, the menus' WGSL shaders,
-#                                       sound on the browser's audio thread, the file picker, no mods or Exit
+#   patches/web/N64Recomp.patch         the port's RSPRecomp change (F3DDKR's and the audio microcode's)
+#   patches/web/dkr.patch               the page's changes to the port's own code: the canvas, the menus' WGSL shaders,
+#                                       sound on the browser's audio thread, the file picker, no mods, updates or Exit
 # The recompiled code is made by N64Recomp patched for the web (N64Recomp-browser): it writes the tail calls as
 # return_calls and keeps the FPU's rounding mode for float-to-int conversions, which WebAssembly's own instructions
-# can't. That N64Recomp has no call tracking for the crash log (the base's recomp_enter_function and
+# can't. That N64Recomp has no call tracking for the crash log (the port's recomp_enter_function and
 # recomp_exit_function), so jfg.us.toml's hooks lose their recomp_exit_function() calls in the copy it reads, which
 # also takes the page's own hooks (patches/web/jfg.us.web.toml).
 set -euo pipefail
@@ -33,8 +36,6 @@ ROM="${1:-$HERE/baserom.us.z64}"
 case "$ROM" in /*) ;; *) ROM="$PWD/$ROM" ;; esac
 WORK="$HERE/web-build"
 BROWSER="$HERE/lib/N64Recomp-browser"
-BASE_URL=https://github.com/cyscott/dkr-recomp.git
-BASE_COMMIT="$(sed -n 's/^BASE_COMMIT=//p' "$HERE/build_linux.sh")"
 ROM_SHA1="$(sed -n 's/^ROM_SHA1=//p' "$HERE/build_linux.sh")"
 step() { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nError: %s\n' "$*" >&2; exit 1; }
@@ -45,24 +46,24 @@ TOOLS="git cmake ninja clang clang++ python3 emcmake embuilder"
 for t in $TOOLS; do command -v "$t" > /dev/null || fail "$t not found"; done
 upstream() { awk -v n="$1" '$1 == n { print $4 }' "$BROWSER/patches/patches.txt"; }
 
-# ---------------------------------------------------------------- the base project
-if [ ! -d "$WORK/.git" ]; then
-    step "Downloading the base project into web-build/"
-    git clone -q "$BASE_URL" "$WORK"
-    git -C "$WORK" checkout -q --detach "$BASE_COMMIT"
-    git -C "$WORK" submodule update --init --recursive --depth 1
-fi
+# ---------------------------------------------------------------- the copy
+# A web-build/ that is something else (the base project's clone this made before the port held it) is made again.
+[ "$(git -C "$WORK" remote get-url origin 2> /dev/null)" = "$HERE" ] || rm -rf "$WORK"
+[ -d "$WORK/.git" ] || git clone -q --no-checkout "$HERE" "$WORK"
 cd "$WORK"
+# This checkout's commit and its uncommitted changes to tracked files, as the copy is to hold them.
+here_state() {
+    git -C "$HERE" rev-parse HEAD
+    git -C "$HERE" diff HEAD -- . ':!lib'
+}
 
 # ---------------------------------------------------------------- the patches
 # Everything is patched from scratch whenever the patches, or what they patch, aren't as this left them.
 LIBS="lib/rt64 lib/N64ModernRuntime lib/N64Recomp"
 patched_state() {
     {
-        echo "$BASE_COMMIT"
-        cat "$BROWSER"/patches/*.patch "$HERE"/patches/*.patch "$HERE"/patches/web/*.patch submodule-patches/n64recomp-dkr.patch
-        git -C "$HERE" ls-files -s src include assets icons tools jfg.us.toml jfg.us.syms.toml rsp-aspMain.jfg.toml version.txt
-        git -C "$HERE" diff HEAD -- src include assets icons tools jfg.us.toml jfg.us.syms.toml rsp-aspMain.jfg.toml version.txt
+        here_state
+        cat "$BROWSER"/patches/*.patch
         git diff HEAD
         for lib in $LIBS; do
             git -C "$lib" rev-parse HEAD
@@ -73,7 +74,15 @@ patched_state() {
 }
 PATCHED="$(git rev-parse --git-dir)/web-patched"
 if [ "$(cat "$PATCHED" 2> /dev/null)" != "$(patched_state 2> /dev/null)" ]; then
-    step "Patching the base project and its libraries"
+    step "Copying this checkout into web-build/ and patching it"
+    git fetch -q "$HERE" HEAD
+    git checkout -q -f --detach FETCH_HEAD
+    git clean -fdq -- src include assets icons tools shaders
+    git -C "$HERE" diff --binary HEAD -- . ':!lib' | git apply --allow-empty
+    # The port's other libraries at the commits it pins, over what an earlier patch step left; N64Recomp-browser is
+    # this checkout's own.
+    git submodule sync -q
+    git -c submodule.lib/N64Recomp-browser.update=none submodule update -q --init --recursive --force --depth 1
     # The libraries at N64Recomp-browser's upstream commits, clean.
     moveto() { # <lib> <upstream repository> <commit>
         if [ "$(git -C "$1" rev-parse HEAD)" != "$3" ]; then
@@ -85,13 +94,13 @@ if [ "$(cat "$PATCHED" 2> /dev/null)" != "$(patched_state 2> /dev/null)" ]; then
         git -C "$1" clean -fdq
         git -C "$1" submodule update -q --init --recursive --depth 1
     }
+    # The port's rt64 pins a newer imgui and implot than upstream's, which its code and rt64.patch take.
+    imgui_pins="$(git -C lib/rt64 ls-tree HEAD src/contrib/imgui src/contrib/implot)"
     moveto lib/rt64 https://github.com/rt64/rt64 "$(upstream rt64)"
     moveto lib/N64ModernRuntime https://github.com/N64Recomp/N64ModernRuntime "$(upstream N64ModernRuntime)"
     moveto lib/N64Recomp https://github.com/N64Recomp/N64Recomp "$(upstream N64Recomp)"
-    git checkout -q -f -- .
-    git clean -fdq -- src include assets icons tools shaders
 
-    # The web support (N64Recomp-browser), then the base's and JFG's changes on top.
+    # The web support (N64Recomp-browser), then the port's changes on top.
     web_patch() { cmake -P "$BROWSER/patches/apply.cmake" "$@"; }
     web_patch rt64 lib/rt64
     web_patch plume lib/rt64/src/contrib/plume
@@ -99,24 +108,18 @@ if [ "$(cat "$PATCHED" 2> /dev/null)" != "$(patched_state 2> /dev/null)" ]; then
     web_patch N64ModernRuntime lib/N64ModernRuntime
     web_patch N64Recomp lib/N64ModernRuntime/N64Recomp
     web_patch N64Recomp lib/N64Recomp
+    while read -r _ _ commit path; do
+        git -C "lib/rt64/$path" fetch -q --depth 1 origin "$commit"
+        git -C "lib/rt64/$path" checkout -q -f --detach "$commit"
+    done <<< "$imgui_pins"
     git -C lib/rt64 apply "$HERE/patches/web/rt64.patch"
     git -C lib/N64ModernRuntime apply "$HERE/patches/web/N64ModernRuntime.patch"
-    git -C lib/N64Recomp apply --recount "$WORK/submodule-patches/n64recomp-dkr.patch"
+    git -C lib/N64Recomp apply --recount "$HERE/patches/web/N64Recomp.patch"
 
-    # JFG on the base project, as build_linux.sh does it, then the page's changes.
-    git apply --recount "$HERE/patches/jfg-base.patch"
-    python3 "$HERE/tools/set_version.py" "$HERE/version.txt" .
-    mkdir -p src/jfg include tools assets/jfg_launcher
-    cp "$HERE"/src/jfg/*.cpp "$HERE"/src/jfg/*.h "$HERE"/src/jfg/*.inc src/jfg/
-    cp "$HERE"/assets/config_menu/jfg_*.rml assets/config_menu/
-    cp "$HERE"/assets/jfg_launcher/* assets/jfg_launcher/
-    cp "$HERE"/include/*.h include/
-    cp "$HERE"/icons/* icons/
-    cp "$HERE"/jfg.us.toml "$HERE"/jfg.us.syms.toml "$HERE"/rsp-aspMain.jfg.toml .
-    cp "$HERE"/tools/*.py "$HERE"/tools/jfg.us.dynamic_relocs.json tools/
+    # The page's changes to the port's code.
     git apply "$HERE/patches/web/dkr.patch"
-    # The shaders the page builds before the game starts (CMakeLists.txt's RT64_PREBUILT_SHADER_LIST).
-    [ ! -f "$HERE/src/rt64_shaders.txt" ] || cp "$HERE/src/rt64_shaders.txt" src/
+    # The changelog the launcher shows ships with the assets, as build_linux.sh puts it.
+    cp -f CHANGELOG.md assets/jfg_launcher/CHANGELOG.md
     patched_state > "$PATCHED"
 fi
 ! $PATCHES_ONLY || { step "Patched"; exit 0; }

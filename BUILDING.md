@@ -4,18 +4,20 @@ This fork's `main` branch builds the game with [Emscripten](https://emscripten.o
 `JetForceGeminiRecompiled.html`, that draws through WebGPU. The desktop build is upstream's and unchanged: README.md's
 Build and run.
 
-The desktop build is [cyscott/dkr-recomp](https://github.com/cyscott/dkr-recomp), which `build_linux.sh` downloads,
-with this repo's `patches/` and `src/jfg/` on top. The page is the same, built in `web-build/` by `tools/build_web.sh`
-(its header says each step), with one difference: its `lib/rt64`, `lib/N64ModernRuntime` and `lib/N64Recomp` are
-upstream's at the commits [N64Recomp-browser](https://github.com/n64hub/N64Recomp-browser) (`lib/N64Recomp-browser`)
-makes its patches on, with the web support patched in (its `patches/apply.cmake`), and the base project's and this
-repo's changes to them made again for those commits on top:
+The desktop build is upstream's: the base project's code is in this tree, and `lib/` pins upstream's forks of rt64,
+N64ModernRuntime and N64Recomp. The page is the same, built in `web-build/` by `tools/build_web.sh` (its header says
+each step), a clone of this checkout, with one difference: its `lib/rt64`, `lib/N64ModernRuntime` and `lib/N64Recomp`
+are upstream's at the commits [N64Recomp-browser](https://github.com/n64hub/N64Recomp-browser)
+(`lib/N64Recomp-browser`) makes its patches on, with the web support patched in (its `patches/apply.cmake`), and the
+port's changes to them made again for those commits on top:
 
-- `patches/web/rt64.patch`: the base project's rt64 changes and `patches/rt64-jfg.patch`.
-- `patches/web/N64ModernRuntime.patch`: the base project's runtime changes, but its reading of a sound buffer given by
+- `patches/web/rt64.patch`: the port's rt64 (F3DDKR, Dinosaur Planet's and the game's own changes: bloom, SSAO, fog,
+  the vignette, the soft shadows), over the newer imgui and implot it pins.
+- `patches/web/N64ModernRuntime.patch`: the port's runtime changes, but its reading of a sound buffer given by
   its KSEG1 address through KSEG0's and its check that the buffer lies in RDRAM: N64Recomp-browser's runtime does both
   in `queue_audio_buffer`, for every game (N64ModernRuntime-web 059e4fe).
-- `patches/web/dkr.patch`: the base project's own code for the page. RT64 draws on the page's canvas, the menus'
+- `patches/web/N64Recomp.patch`: the port's RSPRecomp change, for F3DDKR's and the sound's microcode.
+- `patches/web/dkr.patch`: the port's own code for the page. RT64 draws on the page's canvas, the menus'
   shaders are WGSL, the sound plays on the browser's audio thread (N64Recomp-browser's `frontend/audio_output.h`), the
   ROM comes from the page's file picker, and saves and settings are kept in the browser.
 
@@ -78,8 +80,8 @@ The list is recorded by code, not by hand: `tools/shader_plan.json` (written by 
 says how it plays) is a plan for N64Recomp-browser's `tools/record_shaders.mjs`, which boots the page, starts a new
 game and, for each section, warps to every room of one planet with `tools/shader_survey.js`, looking around in each,
 and in a load of its own to the planet's bosses, cutscene or race that draw shaders its rooms don't, fighting there.
-The warp is the one the desktop build's F10 toolbar has (`src/jfg/jfg_debug_menu.cpp`), which the page's build
-exports to the survey as `jfg_web_warp`. To record again, after `tools/build_web.sh`:
+The warp is the one the desktop build's F10 toolbar has (`src/jfg/jfg_ui_tools.cpp`), which the page's build
+exports to the survey as `jfg_web_warp` (`src/jfg/jfg_web.cpp`). To record again, after `tools/build_web.sh`:
 
 ```bash
 python3 tools/make_plans.py
