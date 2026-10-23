@@ -12,7 +12,9 @@ makes its patches on, with the web support patched in (its `patches/apply.cmake`
 repo's changes to them made again for those commits on top:
 
 - `patches/web/rt64.patch`: the base project's rt64 changes and `patches/rt64-jfg.patch`.
-- `patches/web/N64ModernRuntime.patch`: the base project's runtime changes.
+- `patches/web/N64ModernRuntime.patch`: the base project's runtime changes, but its reading of a sound buffer given by
+  its KSEG1 address through KSEG0's and its check that the buffer lies in RDRAM: N64Recomp-browser's runtime does both
+  in `queue_audio_buffer`, for every game (N64ModernRuntime-web 059e4fe).
 - `patches/web/dkr.patch`: the base project's own code for the page. RT64 draws on the page's canvas, the menus'
   shaders are WGSL, the sound plays on the browser's audio thread (N64Recomp-browser's `frontend/audio_output.h`), the
   ROM comes from the page's file picker, and saves and settings are kept in the browser.

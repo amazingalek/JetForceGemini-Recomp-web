@@ -1,44 +1,28 @@
 diff --git a/librecomp/src/ai.cpp b/librecomp/src/ai.cpp
-index 0195f2b..ea77182 100644
+index 0195f2b..59a7c22 100644
 --- a/librecomp/src/ai.cpp
 +++ b/librecomp/src/ai.cpp
-@@ -16,7 +16,38 @@ extern "C" void osAiSetFrequency_recomp(uint8_t* rdram, recomp_context* ctx) {
+@@ -16,7 +16,22 @@ extern "C" void osAiSetFrequency_recomp(uint8_t* rdram, recomp_context* ctx) {
  }
  
  extern "C" void osAiSetNextBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
 -    ultramodern::queue_audio_buffer(rdram, ctx->r4, ctx->r5);
-+    // libaudio may hand the AI driver an uncached KSEG1 address. The generic
-+    // host-pointer conversion expects the equivalent cached KSEG0 address;
-+    // without canonicalizing it, KSEG1 adds 512 MiB and lands in the guard
-+    // region above the recompiler's committed RDRAM mapping.
-+    uint32_t audio_buffer = ctx->r4;
-+    if ((audio_buffer & 0xE0000000U) == 0xA0000000U) {
-+        audio_buffer = (audio_buffer & 0x1FFFFFFFU) | 0x80000000U;
-+    }
-+
-+    constexpr uint32_t rdram_size = 8U * 1024U * 1024U;
-+    const uint32_t physical_address = audio_buffer & 0x1FFFFFFFU;
++    // queue_audio_buffer reads a KSEG1 buffer through KSEG0 and plays none outside RDRAM; a byte count that isn't a
++    // whole number of samples isn't queued either.
 +    const uint32_t byte_count = static_cast<uint32_t>(ctx->r5);
-+
-+    // Treat AI DMA arguments as untrusted. A wrapped negative byte count can
-+    // otherwise turn into billions of samples, stalling the audio thread until
-+    // it walks through the RDRAM guard region and crashes. Validate both the
-+    // sample alignment and the complete source range before pointer conversion.
-+    const bool invalid_range = (byte_count != 0) &&
-+        ((physical_address >= rdram_size) || (byte_count > (rdram_size - physical_address)));
-+    if ((byte_count & 1U) != 0 || invalid_range) {
++    if ((byte_count & 1U) != 0) {
 +        static uint32_t invalid_audio_dma_warnings = 0;
 +        if (invalid_audio_dma_warnings < 8) {
 +            std::fprintf(stderr,
 +                "[Audio] Ignoring invalid AI DMA: address=0x%08X, bytes=%u\n",
-+                audio_buffer, byte_count);
++                static_cast<uint32_t>(ctx->r4), byte_count);
 +            invalid_audio_dma_warnings++;
 +        }
 +        ctx->r2 = 0;
 +        return;
 +    }
 +
-+    ultramodern::queue_audio_buffer(rdram, static_cast<int32_t>(audio_buffer), byte_count);
++    ultramodern::queue_audio_buffer(rdram, ctx->r4, byte_count);
      ctx->r2 = 0;
  }
  
@@ -63,10 +47,10 @@ index 1cb3f6a..b117649 100644
  
      if (ucode_func == nullptr) {
 diff --git a/ultramodern/include/ultramodern/ultramodern.hpp b/ultramodern/include/ultramodern/ultramodern.hpp
-index 46aea61..d6eb47e 100644
+index da24a61..7bc1795 100644
 --- a/ultramodern/include/ultramodern/ultramodern.hpp
 +++ b/ultramodern/include/ultramodern/ultramodern.hpp
-@@ -100,6 +100,8 @@ void set_entrypoint_thread();
+@@ -101,6 +101,8 @@ void set_entrypoint_thread();
  bool is_entrypoint_thread();
  bool is_game_thread();
  void submit_rsp_task(RDRAM_ARG PTR(OSTask) task);
@@ -76,7 +60,7 @@ index 46aea61..d6eb47e 100644
  uint32_t get_speed_multiplier();
  
 diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
-index 2f1cfb5..016991e 100644
+index 343d069..29b60da 100644
 --- a/ultramodern/src/events.cpp
 +++ b/ultramodern/src/events.cpp
 @@ -1,5 +1,6 @@
@@ -102,7 +86,7 @@ index 2f1cfb5..016991e 100644
  };
  
  struct ScreenUpdateAction {
-@@ -267,6 +270,20 @@ void dp_complete() {
+@@ -419,6 +422,20 @@ void dp_complete() {
      ultramodern::enqueue_external_message_src(events_context.dp.mq, events_context.dp.msg, false, ultramodern::EventMessageSource::Dp);
  }
  
@@ -123,7 +107,7 @@ index 2f1cfb5..016991e 100644
  void task_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_ready) {
      ultramodern::set_native_thread_name("SP Task Thread");
      ultramodern::set_native_thread_priority(ultramodern::ThreadPriority::Normal);
-@@ -353,27 +370,77 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -505,27 +522,77 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
      // Notify the caller thread that this thread is ready.
      thread_ready->signal();
  
@@ -206,7 +190,7 @@ index 2f1cfb5..016991e 100644
                  // TODO hook the parsed event up to the actual parsing point when a callback is added to RT64.
                  ultramodern::extensions::on_displaylist_parsed(displaylist);
                  ultramodern::extensions::on_displaylist_completed(displaylist);
-@@ -562,7 +629,9 @@ void ultramodern::submit_rsp_task(RDRAM_ARG PTR(OSTask) task_) {
+@@ -714,7 +781,9 @@ void ultramodern::submit_rsp_task(RDRAM_ARG PTR(OSTask) task_) {
  
      // Send gfx tasks to the graphics action queue
      if (task->t.type == M_GFXTASK) {

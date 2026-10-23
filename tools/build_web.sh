@@ -15,7 +15,9 @@
 # at the upstream commits N64Recomp-browser's patches are made on (lib/N64Recomp-browser/patches/patches.txt), with
 # the web support patched in, and then the base project's and JFG's own changes to them, made again for those commits:
 #   patches/web/rt64.patch              the base's rt64 changes (Dinosaur Planet's, F3DDKR) and patches/rt64-jfg.patch
-#   patches/web/N64ModernRuntime.patch  the base's runtime changes (sound, a display list parsed before its task ends)
+#   patches/web/N64ModernRuntime.patch  the base's runtime changes (sound, a display list parsed before its task ends),
+#                                       but for a sound buffer's KSEG1 address and RDRAM check, which N64Recomp-browser's
+#                                       queue_audio_buffer makes for every game
 #   patches/web/dkr.patch               the base project's own code for the page: the canvas, the menus' WGSL shaders,
 #                                       sound on the browser's audio thread, the file picker, no mods or Exit
 # The recompiled code is made by N64Recomp patched for the web (N64Recomp-browser): it writes the tail calls as
