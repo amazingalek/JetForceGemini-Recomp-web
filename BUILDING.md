@@ -129,8 +129,13 @@ thread runs meanwhile, so the game stood still through RT64's wait for the GPU a
 headless Chrome 155 (RTX 2070, a quiet host), the play plan drew 19.4-19.8 frames a second with 250,000-300,000 sound
 frames short in 165 s. On the page RT64 calls the runtime back at the list's last full sync (the one its end follows:
 every list the game sends has one), when the whole list has been read from RDRAM, and the runtime lets the game go
-there (`patches/web/rt64.patch`, `patches/web/N64ModernRuntime.patch`, `dkr.patch`'s renderer). The RSP's and the
-RDP's completion still come once the frame is drawn, so the game never rebuilds a list RT64 is still reading. Running
-on, the game counts the retraces an RSP or RDP task has been current, and at 11 its scheduler takes the RCP for hung,
-shows its debug screen and stops; a frame that waits for its prebuilt shaders takes a second and more, so a hook
-(`patches/web/jfg.us.web.toml`) starts both counts again at every retrace.
+there (`patches/web/rt64.patch`, `patches/web/N64ModernRuntime.patch`, `dkr.patch`'s renderer). The RSP's completion
+comes there too, as the list has been read, and the RDP's once the frame is drawn, so the game never rebuilds a list
+RT64 is still reading. The game's scheduler yields a graphics task when a sound task is due and starts the sound once
+the RSP stops, which the runtime answers with the graphics task's completion: sent once the frame was drawn, every sound
+task waited for RT64's GPU work, and at Game Frame Rate 60 uncapped (above) the page ran 130,000-260,000 sound frames
+short over the play plan; with the RSP's completion at the full sync, 14,600-25,500, against 9,700-16,300 on the page
+before v1.2.2 at the game's own pacing, the rest where the GPU is busiest and the game thread waits for RT64 to reach
+its list behind 2-3 others. Running on, the game counts the retraces an RSP or RDP task has been current, and at 11 its
+scheduler takes the RCP for hung, shows its debug screen and stops; a frame that waits for its prebuilt shaders takes a
+second and more, so a hook (`patches/web/jfg.us.web.toml`) starts both counts again at every retrace.
