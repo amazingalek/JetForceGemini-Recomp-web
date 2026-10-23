@@ -127,20 +127,20 @@ The exact copy cost the game half its frame rate, until the page let the game ru
 runtime holds the game thread that submits a display list until the graphics thread has drawn it, and no other game
 thread runs meanwhile, so the game stood still through RT64's wait for the GPU and the readback: from a local build in
 headless Chrome 155 (RTX 2070, a quiet host), the play plan drew 19.4-19.8 frames a second with 250,000-300,000 sound
-frames short in 165 s. On the page RT64 calls the runtime back at the list's last full sync (the one its end follows:
-every list the game sends has one), when the whole list has been read from RDRAM, and the runtime lets the game go
-there (`patches/web/rt64.patch`, `patches/web/N64ModernRuntime.patch`, `dkr.patch`'s renderer). The RSP's completion
-comes there too, as the list has been read, and the RDP's once the frame is drawn, so the game never rebuilds a list
-RT64 is still reading. The game's scheduler yields a graphics task when a sound task is due and starts the sound once
-the RSP stops, which the runtime answers with the graphics task's completion: sent once the frame was drawn, every sound
-task waited for RT64's GPU work, and at Game Frame Rate 60 uncapped (above) the page ran 130,000-260,000 sound frames
-short over the play plan; with the RSP's completion at the full sync, 14,600-25,500, against 9,700-16,300 on the page
-before v1.2.2 at the game's own pacing, the rest where the GPU is busiest and the game thread waits for RT64 to reach
-its list behind 2-3 others. That thread is the scheduler's, which starts every RSP task, so no sound task starts until
-RT64 has read the list, whichever other game threads run meanwhile: with the wait giving up the thread's turn to them,
-two pairs interleaved with the page ran 7,077 and 18,370 sound frames short over the plan's sampled 45 s, against its
-9,830 and 9,584. A sound task would start at once only if the scheduler went on at the submit, RT64 reading the list
-from a copy of RDRAM taken there, as DKR-R-web's runtime has it. Running on, the game counts the retraces an RSP or RDP
-task has been current, and at 11 its scheduler takes the RCP for hung, shows its debug screen and stops; a frame that
-waits for its prebuilt shaders takes a second and more, so a hook (`patches/web/jfg.us.web.toml`) starts both counts
-again at every retrace.
+frames short in 165 s. The game starts rebuilding a list's memory as soon as it has submitted it, so on the page the
+runtime copies RDRAM's 8 MB at the submit and lets the game go, and RT64 reads the list, and the matrices, vertices and
+textures it points at, from the copy (`patches/web/N64ModernRuntime.patch`; `dkr.patch`'s renderer swaps
+`State::RDRAM` for it in `send_dl`). Render to RAM's copies are written to the game's RDRAM, where the CPU reads them,
+and to the copy (`patches/web/rt64.patch`, `State::gameRDRAM`). The RSP's completion comes as the graphics thread takes
+the task, and the RDP's once the frame is drawn and copied; the game's scheduler (libultra's) starts a graphics task
+only once the one before has the RDP's, so each copy holds what the lists before it drew. That scheduler is the thread
+that submits the lists, and it starts every sound task too: it yields a graphics task when a sound task is due and
+starts the sound once the RSP stops, which the runtime answers with the graphics task's completion. Sent once the frame
+was drawn, every sound task waited for RT64's GPU work, and at Game Frame Rate 60 uncapped (above) the page ran
+130,000-260,000 sound frames short over the play plan; sent once RT64 had read the list, the scheduler held until then,
+14,600-25,500, the rest where the GPU is busiest and RT64 reaches a list behind 2-3 others. With the copy, two pairs
+interleaved with that page (RTX 2070, the GPU 80-92% busy in Goldwood) ran 0 sound frames short over the plan's sampled
+45 s, against its 18,745 and 21,178, and presented 279 and 257 a second against its 238 and 251. Running on, the game
+counts the retraces an RSP or RDP task has been current, and at 11 its scheduler takes the RCP for hung, shows its debug
+screen and stops; a frame that waits for its prebuilt shaders takes a second and more, so a hook
+(`patches/web/jfg.us.web.toml`) starts both counts again at every retrace.
