@@ -7,7 +7,7 @@ Build and run.
 The desktop build is [cyscott/dkr-recomp](https://github.com/cyscott/dkr-recomp), which `build_linux.sh` downloads,
 with this repo's `patches/` and `src/jfg/` on top. The page is the same, built in `web-build/` by `tools/build_web.sh`
 (its header says each step), with one difference: its `lib/rt64`, `lib/N64ModernRuntime` and `lib/N64Recomp` are
-upstream's at the commits [N64Recomp-browser](https://github.com/amazingalek/N64Recomp-browser) (`lib/N64Recomp-browser`)
+upstream's at the commits [N64Recomp-browser](https://github.com/n64hub/N64Recomp-browser) (`lib/N64Recomp-browser`)
 makes its patches on, with the web support patched in (its `patches/apply.cmake`), and the base project's and this
 repo's changes to them made again for those commits on top:
 
@@ -47,7 +47,7 @@ It was built on Linux, in the Docker image N64Recomp-browser's README describes.
 ## Building
 
 ```bash
-git clone --recursive https://github.com/amazingalek/JetForceGemini-Recomp-web
+git clone --recursive https://github.com/n64hub/JetForceGemini-Recomp-web
 cd JetForceGemini-Recomp-web
 tools/build_web.sh path/to/baserom.us.z64
 ```
@@ -92,8 +92,8 @@ then put back the list's header, which says what was played.
 ## How it plays
 
 How the page plays in Chrome and Firefox, run by run, is recorded in N64Recomp-browser's
-[plays.jsonl](https://github.com/amazingalek/N64Recomp-browser/blob/main/plays.jsonl) and its
-[games table](https://github.com/amazingalek/N64Recomp-browser#games).
+[plays.jsonl](https://github.com/n64hub/N64Recomp-browser/blob/main/plays.jsonl) and its
+[games table](https://github.com/n64hub/N64Recomp-browser#games).
 
 On the page the Graphics menu's Framerate is Display by default, where the desktop build's is Original:
 `patches/web/dkr.patch` sets `rr_default` with Emscripten and moves a page's settings saved before graphics config

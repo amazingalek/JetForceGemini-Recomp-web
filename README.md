@@ -1,8 +1,8 @@
 # Jet Force Gemini: Recompiled
 
 > [!WARNING]
-> **This is amazingalek/JetForceGemini-Recomp-web, a fork, not Jet Force Gemini: Recompiled.** Its `main` branch
-> builds the game into a web page (WebGPU, through [N64Recomp-browser](https://github.com/amazingalek/N64Recomp-browser)),
+> **This is n64hub/JetForceGemini-Recomp-web, a fork, not Jet Force Gemini: Recompiled.** Its `main` branch
+> builds the game into a web page (WebGPU, through [N64Recomp-browser](https://github.com/n64hub/N64Recomp-browser)),
 > and everything on that branch past upstream's commits was written by AI (Claude). It is not made, endorsed or
 > supported by upstream's author: nothing here is offered upstream, and please don't take issues with this fork to
 > them. Building the page: [BUILDING.md](BUILDING.md).
@@ -10,7 +10,7 @@
 > This port is here to build out and test N64Recomp-browser's web support on another game: what it turns up is fixed
 > there where it can be, so every recomp's page gets the fix.
 
-**Play it in the browser: https://amazingalek.github.io/JetForceGemini-Recomp-web/**, with your own ROM, picked in the
+**Play it in the browser: https://n64hub.com/jet-force-gemini/**, with your own ROM, picked in the
 launcher and kept in the browser. It needs WebGPU (Chrome or Edge 113 and up, or Firefox 141 and up on Windows). The
 page is built from this branch and published with N64Recomp-browser's `tools/publish_page.sh`, so it can be a commit
 or two behind. The page leaves out what a browser can't do: mods, texture packs, the debug window and the F10 toolbar
