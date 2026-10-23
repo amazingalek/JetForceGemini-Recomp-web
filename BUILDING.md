@@ -136,6 +136,11 @@ the RSP stops, which the runtime answers with the graphics task's completion: se
 task waited for RT64's GPU work, and at Game Frame Rate 60 uncapped (above) the page ran 130,000-260,000 sound frames
 short over the play plan; with the RSP's completion at the full sync, 14,600-25,500, against 9,700-16,300 on the page
 before v1.2.2 at the game's own pacing, the rest where the GPU is busiest and the game thread waits for RT64 to reach
-its list behind 2-3 others. Running on, the game counts the retraces an RSP or RDP task has been current, and at 11 its
-scheduler takes the RCP for hung, shows its debug screen and stops; a frame that waits for its prebuilt shaders takes a
-second and more, so a hook (`patches/web/jfg.us.web.toml`) starts both counts again at every retrace.
+its list behind 2-3 others. That thread is the scheduler's, which starts every RSP task, so no sound task starts until
+RT64 has read the list, whichever other game threads run meanwhile: with the wait giving up the thread's turn to them,
+two pairs interleaved with the page ran 7,077 and 18,370 sound frames short over the plan's sampled 45 s, against its
+9,830 and 9,584. A sound task would start at once only if the scheduler went on at the submit, RT64 reading the list
+from a copy of RDRAM taken there, as DKR-R-web's runtime has it. Running on, the game counts the retraces an RSP or RDP
+task has been current, and at 11 its scheduler takes the RCP for hung, shows its debug screen and stops; a frame that
+waits for its prebuilt shaders takes a second and more, so a hook (`patches/web/jfg.us.web.toml`) starts both counts
+again at every retrace.
